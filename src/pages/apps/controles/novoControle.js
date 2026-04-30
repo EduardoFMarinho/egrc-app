@@ -220,7 +220,7 @@ function ColumnsLayouts() {
       setTiposControles
     );
     fetchData(
-      `${process.env.REACT_APP_API_URL}controls/classifications`,
+      `${process.env.REACT_APP_API_URL}controls/classifications/2`,
       setClassificacoes
     );
     fetchData(

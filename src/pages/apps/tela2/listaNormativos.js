@@ -78,6 +78,11 @@ const REVISION_STATUS_LABELS = {
   3: "Em atraso",
 };
 
+const NORMATIVE_INTERN_TYPE_LABELS = {
+  1: "Interno",
+  2: "Externo",
+};
+
 const defaultVisibility = {
   date: true,
   code: true,
@@ -102,6 +107,11 @@ const normalizeText = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
+const normalizeNormativeInternType = (value) => {
+  const numericValue = Number(value);
+  return [1, 2].includes(numericValue) ? numericValue : null;
+};
+
 const normalizeArrayValue = (value) => {
   if (Array.isArray(value)) {
     return value.flatMap(normalizeArrayValue).filter(Boolean);
@@ -119,6 +129,8 @@ const normalizeArrayValue = (value) => {
       value.value ??
       value.title ??
       value.environmentName ??
+      value.normativeInternTypeName ??
+      value.normativeInternTypeDescription ??
       value.statusName ??
       value.description ??
       value.code ??
@@ -158,6 +170,11 @@ const getNormativeStatusLabel = (status) =>
 const getRevisionStatusLabel = (status) =>
   REVISION_STATUS_LABELS[Number(status)] || (status ? String(status) : "-");
 
+const getNormativeInternTypeLabel = (value) => {
+  const normalizedType = normalizeNormativeInternType(value);
+  return normalizedType ? NORMATIVE_INTERN_TYPE_LABELS[normalizedType] : null;
+};
+
 const resolveNormativeStatusValue = (normative) =>
   normative?.normativeStatus ??
   normative?.statusNorma ??
@@ -169,6 +186,14 @@ const resolveNormativeStatusValue = (normative) =>
   null;
 
 const resolveEnvironmentValue = (normative) =>
+  getNormativeInternTypeLabel(
+    normative?.normativeInternType ??
+      normative?.idEnvironment ??
+      normative?.environment?.idEnvironment ??
+      normative?.environment?.id,
+  ) ??
+  normative?.normativeInternTypeName ??
+  normative?.normativeInternTypeDescription ??
   normative?.environment ??
   normative?.environments ??
   normative?.environmentName ??
@@ -232,6 +257,12 @@ const buildNormativeUpdatePayload = (normativeData, nextActive) => {
     ...normativeData,
     active: nextActive,
   };
+  const normalizedInternType = normalizeNormativeInternType(
+    payload.normativeInternType ??
+      payload.idEnvironment ??
+      payload.environment?.idEnvironment ??
+      payload.environment?.id,
+  );
 
   if (
     payload.daysRevision !== null &&
@@ -241,6 +272,11 @@ const buildNormativeUpdatePayload = (normativeData, nextActive) => {
     payload.daysRevision = String(payload.daysRevision);
   }
 
+  if (normalizedInternType) {
+    payload.normativeInternType = normalizedInternType;
+  }
+
+  delete payload.idEnvironment;
   payload.files = normalizeUploadedFiles(payload.files);
 
   return payload;
