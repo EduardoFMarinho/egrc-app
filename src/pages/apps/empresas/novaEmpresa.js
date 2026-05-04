@@ -207,7 +207,7 @@ function ColumnsLayouts() {
       setOrgaosReguladores,
     );
     fetchData(
-      `${process.env.REACT_APP_API_URL}controls/classifications/1`,
+      `${process.env.REACT_APP_API_URL}controls/classifications/2`,
       setClassificacoes,
     );
     fetchData(

@@ -188,8 +188,6 @@ const resolveNormativeStatusValue = (normative) =>
 const resolveEnvironmentValue = (normative) =>
   getNormativeInternTypeLabel(
     normative?.normativeInternType ??
-      normative?.idEnvironment ??
-      normative?.environment?.idEnvironment ??
       normative?.environment?.id,
   ) ??
   normative?.normativeInternTypeName ??
@@ -259,8 +257,6 @@ const buildNormativeUpdatePayload = (normativeData, nextActive) => {
   };
   const normalizedInternType = normalizeNormativeInternType(
     payload.normativeInternType ??
-      payload.idEnvironment ??
-      payload.environment?.idEnvironment ??
       payload.environment?.id,
   );
 
@@ -276,7 +272,6 @@ const buildNormativeUpdatePayload = (normativeData, nextActive) => {
     payload.normativeInternType = normalizedInternType;
   }
 
-  delete payload.idEnvironment;
   payload.files = normalizeUploadedFiles(payload.files);
 
   return payload;

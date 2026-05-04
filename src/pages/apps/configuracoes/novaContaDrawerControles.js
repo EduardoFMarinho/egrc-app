@@ -24,12 +24,13 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
+function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated, processoSelecionado }) {
   const [open, setOpen] = useState(false);
   const { token } = useToken();
   const location = useLocation();
   const { dadosApi } = location.state || {};
   const [tiposResponsabilidades, setTiposResponsabilidades] = useState([]);
+  const [processos, setProcessos] = useState([]);
   const [nomeConta, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -63,6 +64,10 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
     fetchData(
       `${process.env.REACT_APP_API_URL}ledger-accounts/types`,
       setTiposResponsabilidades
+    );
+    fetchData(
+      `${process.env.REACT_APP_API_URL}processes`,
+      setProcessos
     );
     window.scrollTo(0, 0);
   }, []);
@@ -110,10 +115,14 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
     if (open) {
       setNome("");
       setCodigo("");
-      setFormValidation({ nomeConta: true, codigo: true });
+      setFormValidation({ nomeConta: true, codigo: true, processo: true });
+      setFormData((prev) => ({
+        ...prev,
+        processo: processoSelecionado ? [processoSelecionado.id] : [],
+      }));
       setHasChanges(false);
     }
-  }, [open]);
+  }, [open, processoSelecionado]);
 
   const [formValidation, setFormValidation] = useState({
     nomeConta: true,
@@ -148,7 +157,9 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
       payload = {
         name: nomeConta,
         code: codigo,
-        idLedgerAccountType: formData.tipoResponsabilidade
+        idLedgerAccountType: formData.tipoResponsabilidade,
+        idProcesses: formData.processo.length > 0 ? formData.processo : null,
+        active: true,
       };
     }
 
@@ -169,6 +180,26 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
 
       const data = await response.json();
 
+      if (formData.processo && formData.processo.length > 0) {
+        const putPayload = {
+          idLedgerAccount: data.data.idLedgerAccount,
+          name: nomeConta,
+          code: codigo,
+          idLedgerAccountType: formData.tipoResponsabilidade,
+          idProcesses: formData.processo,
+          active: true,
+        };
+        
+        await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(putPayload),
+        });
+      }
+
       enqueueSnackbar(`Conta ${mensagemFeedback} com sucesso!`, {
         variant: "success",
       });
@@ -178,6 +209,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
         const novaConta = {
           id: data.data.idLedgerAccount, 
           nome: nomeConta,
+          idProcesses: formData.processo,
         };
         onAccountCreated(novaConta);
         setFormData({ ...formData, tipoResponsabilidade: [] })
@@ -299,6 +331,27 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
                         }
                       />
                     )}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12} mb={3}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
+                    Processo
+                  </InputLabel>
+                  <Autocomplete
+                    multiple
+                    options={processos}
+                    getOptionLabel={(option) => option.nome || ""}
+                    value={processos.filter((p) => formData.processo.includes(p.id))}
+                    onChange={(event, newValue) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        processo: newValue.map((item) => item.id),
+                      }));
+                    }}
+                    renderInput={(params) => <TextField {...params} />}
                   />
                 </Stack>
               </Grid>

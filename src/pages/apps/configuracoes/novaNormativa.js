@@ -192,7 +192,6 @@ function getEntityId(item) {
     item?.idNormativeType ||
     item?.idRegulatory ||
     item?.idActionPlan ||
-    item?.idEnvironment ||
     item?.idReviewer ||
     item?.idReviwer ||
     item?.idResponsible
@@ -353,7 +352,6 @@ function resolveNotificationField(notification) {
 
   if (
     normalizedCode === "normativeinterntype" ||
-    normalizedCode === "idenvironment" ||
     normalizedMessage.includes("ambiente")
   ) {
     return "ambiente";
@@ -522,8 +520,6 @@ function mapNormativeToForm(record) {
     name: record.name || "",
     ambiente: normalizeNormativeInternType(
       record.normativeInternType ??
-        record.idEnvironment ??
-        record.environment?.idEnvironment ??
         record.environment?.id,
     ),
     responsavel:
@@ -1092,7 +1088,6 @@ function ColumnsLayouts() {
     requisicao === "Editar" &&
     currentStatus === STATUS.VERSAO_FINAL &&
     isResponsible &&
-    !isExterno &&
     !isPostCreateEditing;
   const canSendElaborated =
     requisicao === "Editar" &&
