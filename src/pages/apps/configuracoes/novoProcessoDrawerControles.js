@@ -25,7 +25,7 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
+function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated, ativosSelecionados = [] }) {
   const [open, setOpen] = useState(false);
   const { token } = useToken();
   const location = useLocation();
@@ -52,6 +52,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
     risco: [],
     incidente: [],
     conta: [],
+    ativo: [],
     responsavel: "",
     dataInicioOperacao: null,
   });
@@ -118,7 +119,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
     if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
       if (formData.empresa.length === empresas.length) {
         // Deselect all
-        setFormData({ ...formData, empresa: [] });
+        setFormData({ ...formData, empresa: [], ativo: [] });
       } else {
         // Select all
         setFormData({
@@ -134,6 +135,11 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
     }
   };
 
+  const normalizarAtivosSelecionados = () =>
+    ativosSelecionados
+      .map((ativo) => (typeof ativo === "object" ? ativo.idPlatform || ativo.id : ativo))
+      .filter(Boolean);
+
   useEffect(() => {
     if (open) {
       setNome("");
@@ -143,9 +149,13 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
         codigo: true,
         empresa: true,
       });
+      setFormData((prev) => ({
+        ...prev,
+        ativo: normalizarAtivosSelecionados(),
+      }));
       setHasChanges(false);
     }
-  }, [open]);
+  }, [open, ativosSelecionados]);
 
   const [formValidation, setFormValidation] = useState({
     nomeDepartamento: true,
@@ -154,8 +164,8 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
   });
 
   const allSelected =
-    formData.departamentoInferior.length === departamentosInferiores.length &&
-    departamentosInferiores.length > 0;
+    formData.empresa.length === empresas.length &&
+    empresas.length > 0;
 
   const tratarSubmit = async () => {
     let url = "";
@@ -190,6 +200,8 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
         name: nomeDepartamento,
         code: codigo,
         idCompanies: formData.empresa,
+        idPlatforms: formData.ativo.length > 0 ? formData.ativo : null,
+        active: true,
       };
     }
 
@@ -210,17 +222,38 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
 
       const data = await response.json();
 
+      if (formData.ativo && formData.ativo.length > 0) {
+        const putPayload = {
+          idProcess: data.data.idProcess,
+          name: nomeDepartamento,
+          code: codigo,
+          idCompanies: formData.empresa,
+          idPlatforms: formData.ativo,
+          active: true,
+        };
+
+        await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(putPayload),
+        });
+      }
+
       enqueueSnackbar(`Processo ${mensagemFeedback} com sucesso!`, {
         variant: "success",
       });
       setOpen(false);
 
-      setFormData({ ...formData, empresa: [] });
+      setFormData({ ...formData, empresa: [], ativo: [] });
 
       if (onProcessCreated) {
         const novoProcesso = {
           id: data.data.idProcess,
           nome: nomeDepartamento,
+          idPlatforms: formData.ativo,
         };
         onProcessCreated(novoProcesso);
       }
@@ -369,7 +402,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onProcessCreated }) {
             <Button
               onClick={() => {
                 setOpen(false);
-                setFormData({ ...formData, empresa: [] });
+                setFormData({ ...formData, empresa: [], ativo: [] });
               }}
               variant="outlined"
             >
