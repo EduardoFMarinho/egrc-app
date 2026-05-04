@@ -24,12 +24,13 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
+function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated, processosSelecionados = [] }) {
   const [open, setOpen] = useState(false);
   const { token } = useToken();
   const location = useLocation();
   const { dadosApi } = location.state || {};
   const [tiposResponsabilidades, setTiposResponsabilidades] = useState([]);
+  const [processos, setProcessos] = useState([]);
   const [nomeConta, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -61,6 +62,10 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
     fetchData(
       `${process.env.REACT_APP_API_URL}ledger-accounts/types`,
       setTiposResponsabilidades
+    );
+    fetchData(
+      `${process.env.REACT_APP_API_URL}processes`,
+      setProcessos
     );
     window.scrollTo(0, 0);
   }, []);
@@ -104,9 +109,37 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
     window.scrollTo(0, 0);
   }, []);
 
+
+  const getProcessosSelecionadosIds = () =>
+    processosSelecionados
+      .map((processo) =>
+        typeof processo === "object" ? processo.id : processo
+      )
+      .filter(Boolean);
+
+  useEffect(() => {
+    if (open) {
+      setNome("");
+      setCodigo("");
+      setFormValidation({
+        nomeConta: true,
+        codigo: true,
+        tipoResponsabilidade: true,
+        processo: true,
+      });
+      setFormData((prev) => ({
+        ...prev,
+        tipoResponsabilidade: "",
+        processo: getProcessosSelecionadosIds(),
+      }));
+      setHasChanges(false);
+    }
+  }, [open, processosSelecionados]);
+
   const [formValidation, setFormValidation] = useState({
     nomeConta: true,
     codigo: true,
+    tipoResponsabilidade: true,
   });
 
   const tratarSubmit = async () => {
@@ -138,6 +171,8 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
         name: nomeConta,
         code: codigo,
         idLedgerAccountType: formData.tipoResponsabilidade,
+        idProcesses: formData.processo.length > 0 ? formData.processo : null,
+        active: true,
       };
     }
 
@@ -158,6 +193,26 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
 
       const data = await response.json();
 
+      if (formData.processo && formData.processo.length > 0) {
+        const putPayload = {
+          idLedgerAccount: data.data.idLedgerAccount,
+          name: nomeConta,
+          code: codigo,
+          idLedgerAccountType: formData.tipoResponsabilidade,
+          idProcesses: formData.processo,
+          active: true,
+        };
+
+        await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(putPayload),
+        });
+      }
+
       enqueueSnackbar(`Conta ${mensagemFeedback} com sucesso!`, {
         variant: "success",
       });
@@ -165,10 +220,15 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
 
       if (onAccountCreated) {
         const novaConta = {
-          id: data.data.idLedgerAccount, // Se a API retorna um ID, substitua por `data.idProcess`
+          id: data.data.idLedgerAccount,
           nome: nomeConta,
+          idProcesses: formData.processo,
         };
         onAccountCreated(novaConta);
+        setFormData((prev) => ({
+          ...prev,
+          tipoResponsabilidade: "",
+        }));
       }
     } catch (error) {
       console.error(error.message);
@@ -290,11 +350,43 @@ function ColumnsLayoutsDrawer({ buttonSx, onAccountCreated }) {
                   />
                 </Stack>
               </Grid>
+
+              <Grid item xs={12} mb={3}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
+                    Processo
+                  </InputLabel>
+                  <Autocomplete
+                    multiple
+                    options={processos}
+                    getOptionLabel={(option) => option.nome || ""}
+                    value={processos.filter((p) =>
+                      formData.processo.includes(p.id)
+                    )}
+                    onChange={(event, newValue) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        processo: newValue.map((item) => item.id),
+                      }));
+                    }}
+                    renderInput={(params) => <TextField {...params} />}
+                  />
+                </Stack>
+              </Grid>
             </Grid>
           </LocalizationProvider>
 
           <Stack direction="row" spacing={2} mt={10} justifyContent="flex-end">
-            <Button onClick={() => setOpen(false)} variant="outlined">
+            <Button
+              onClick={() => {
+                setOpen(false);
+                setFormData((prev) => ({
+                  ...prev,
+                  tipoResponsabilidade: "",
+                }));
+              }}
+              variant="outlined"
+            >
               Cancelar
             </Button>
             <Button variant="contained" onClick={tratarSubmit}>
