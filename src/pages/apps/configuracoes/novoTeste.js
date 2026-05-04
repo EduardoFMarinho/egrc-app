@@ -144,10 +144,31 @@ function ColumnsLayouts() {
     return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
   };
 
+  const parseStoredDate = (value) => {
+    if (!value) return null;
+    const parsedDate =
+      value instanceof Date
+        ? value
+        : typeof value === "string"
+          ? parseISO(value)
+          : new Date(value);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  };
+
   const getActivePhases = (phases = []) =>
     phases.filter((phase) => phase?.active !== false);
 
   const isPhaseFinished = (phase) => Number(phase?.testPhaseStatus) >= 4;
+
+  const isTestCompletionPersisted = (testData, phases = []) => {
+    const activePhases = getActivePhases(phases);
+    return (
+      Boolean(parseStoredDate(testData?.completionDate)) &&
+      Boolean(testData?.testConclusion) &&
+      activePhases.length > 0 &&
+      activePhases.every(isPhaseFinished)
+    );
+  };
 
   const fetchTestPhases = async (testId) => {
     if (!testId) {
@@ -285,15 +306,7 @@ function ColumnsLayouts() {
         setProcessos(data.controlProcess || "");
         setTiposControles(data.controlType || "");
         setDescricaoControle(data.description || "");
-        setDescricaoConclusao(data.descriptionTestCompletion || "");
-        setDataConclusao(
-          data.completionDate ? parseISO(data.completionDate) : null,
-        );
-        setDataPrevistaConclusao(
-          data.expectedCompletionDate
-            ? parseISO(data.expectedCompletionDate)
-            : null,
-        );
+        setDataPrevistaConclusao(parseStoredDate(data.expectedCompletionDate));
         setFormData((prev) => ({
           ...prev,
           projeto: data.idProject,
@@ -305,11 +318,19 @@ function ColumnsLayouts() {
 
         // 2) Busca fases do teste e calcula status principal
         const phases = await fetchTestPhases(dadosApi.idTest);
-        const mainStatus = computeTestStatus(
-          phases,
-          Boolean(data.completionDate),
+        const isCompletedTest = isTestCompletionPersisted(data, phases);
+        setDescricaoConclusao(
+          isCompletedTest ? data.descriptionTestCompletion || "" : "",
         );
-        setFormData((prev) => ({ ...prev, status: mainStatus }));
+        setDataConclusao(
+          isCompletedTest ? parseStoredDate(data.completionDate) : null,
+        );
+        const mainStatus = computeTestStatus(phases, isCompletedTest);
+        setFormData((prev) => ({
+          ...prev,
+          conclusaoTeste: isCompletedTest ? data.testConclusion : "",
+          status: mainStatus,
+        }));
         setLoading(false);
       } catch (err) {
         console.error("Erro ao inicializar edição:", err);
@@ -386,7 +407,12 @@ function ColumnsLayouts() {
       return 1;
     }
 
-    return 2;
+    const hasOpenPhases = activePhases.some((phase) => {
+      const phaseStatus = Number(phase?.testPhaseStatus);
+      return phaseStatus === 1 || phaseStatus === 2;
+    });
+
+    return hasOpenPhases ? 2 : 3;
   };
 
   const formatarNome = (nome) => nome.replace(/\s+/g, "").toLowerCase();
@@ -574,7 +600,8 @@ function ColumnsLayouts() {
   const pendingTestPhases = activeTestPhases.filter(
     (phase) => !isPhaseFinished(phase),
   );
-  const isTestConcluded = Boolean(dataConclusao);
+  const isTestConcluded =
+    Boolean(dataConclusao) && Boolean(formData.conclusaoTeste);
   const hasStartedTest = activeTestPhases.some(
     (phase) => Number(phase?.testPhaseStatus) > 1,
   );
@@ -583,7 +610,8 @@ function ColumnsLayouts() {
     pendingTestPhases.length === 0 &&
     !isTestConcluded;
   const isTestResponsible =
-    String(formData.responsaveisTeste || "") === String(responsavelPadrao || "");
+    String(formData.responsaveisTeste || "") ===
+    String(responsavelPadrao || "");
   const testFieldsLocked =
     requisicao === "Editar" && (hasStartedTest || isTestConcluded);
   const displayStatus = computeTestStatus(testPhases, isTestConcluded);
@@ -679,6 +707,9 @@ function ColumnsLayouts() {
           idControl: formData.controle,
           idProjectType: tiposControles,
           idResponsible: formData.responsaveisTeste,
+          descriptionTestCompletion: "",
+          completionDate: null,
+          testConclusion: null,
           active: true,
         };
       }
@@ -987,60 +1018,64 @@ function ColumnsLayouts() {
                 </Stack>
               </Grid>
 
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>Data de Conclusão *</InputLabel>
-                  <DatePicker
-                    disabled
-                    value={dataConclusao}
-                    onChange={(newValue) => setDataConclusao(newValue)}
-                    inputFormat="dd/MM/yyyy"
-                    renderInput={(params) => (
-                      <TextField fullWidth {...params} />
-                    )}
-                  />
-                </Stack>
-              </Grid>
+              {isTestConcluded && (
+                <>
+                  <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+                    <Stack spacing={1}>
+                      <InputLabel>Data de Conclusão *</InputLabel>
+                      <DatePicker
+                        disabled
+                        value={dataConclusao}
+                        onChange={(newValue) => setDataConclusao(newValue)}
+                        inputFormat="dd/MM/yyyy"
+                        renderInput={(params) => (
+                          <TextField fullWidth {...params} />
+                        )}
+                      />
+                    </Stack>
+                  </Grid>
 
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>Conclusão do teste *</InputLabel>
-                  <Autocomplete
-                    disabled
-                    options={conclusaoTestes}
-                    getOptionLabel={(option) => option.nome}
-                    value={
-                      conclusaoTestes.find(
-                        (conclusaoTeste) =>
-                          conclusaoTeste.id === formData.conclusaoTeste,
-                      ) || null
-                    }
-                    onChange={(event, newValue) => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        conclusaoTeste: newValue ? newValue.id : "",
-                      }));
-                    }}
-                    renderInput={(params) => <TextField {...params} />}
-                  />
-                </Stack>
-              </Grid>
+                  <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+                    <Stack spacing={1}>
+                      <InputLabel>Conclusão do teste *</InputLabel>
+                      <Autocomplete
+                        disabled
+                        options={conclusaoTestes}
+                        getOptionLabel={(option) => option.nome}
+                        value={
+                          conclusaoTestes.find(
+                            (conclusaoTeste) =>
+                              conclusaoTeste.id === formData.conclusaoTeste,
+                          ) || null
+                        }
+                        onChange={(event, newValue) => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            conclusaoTeste: newValue ? newValue.id : "",
+                          }));
+                        }}
+                        renderInput={(params) => <TextField {...params} />}
+                      />
+                    </Stack>
+                  </Grid>
 
-              <Grid item xs={12} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>Descrição da conclusão</InputLabel>
-                  <TextField
-                    disabled
-                    multiline
-                    rows={2}
-                    onChange={(event) =>
-                      setDescricaoConclusao(event.target.value)
-                    }
-                    fullWidth
-                    value={descricaoConclusao}
-                  />
-                </Stack>
-              </Grid>
+                  <Grid item xs={12} sx={{ paddingBottom: 5 }}>
+                    <Stack spacing={1}>
+                      <InputLabel>Descrição da conclusão</InputLabel>
+                      <TextField
+                        disabled
+                        multiline
+                        rows={2}
+                        onChange={(event) =>
+                          setDescricaoConclusao(event.target.value)
+                        }
+                        fullWidth
+                        value={descricaoConclusao}
+                      />
+                    </Stack>
+                  </Grid>
+                </>
+              )}
 
               <Grid item xs={6} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>

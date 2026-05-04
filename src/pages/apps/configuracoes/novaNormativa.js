@@ -78,9 +78,14 @@ const RISK_OPTIONS = [
   { id: "na", nome: "Não aplicável" },
 ];
 
+const NORMATIVE_INTERN_TYPE = {
+  INTERNAL: 1,
+  EXTERNAL: 2,
+};
+
 const NORMATIVE_ENVIRONMENT_OPTIONS = [
-  { id: 1, nome: "Interno", kind: "internal" },
-  { id: 2, nome: "Externo", kind: "external" },
+  { id: NORMATIVE_INTERN_TYPE.INTERNAL, nome: "Interno", kind: "internal" },
+  { id: NORMATIVE_INTERN_TYPE.EXTERNAL, nome: "Externo", kind: "external" },
 ];
 
 const INITIAL_FORM_DATA = {
@@ -187,7 +192,6 @@ function getEntityId(item) {
     item?.idNormativeType ||
     item?.idRegulatory ||
     item?.idActionPlan ||
-    item?.idEnvironment ||
     item?.idReviewer ||
     item?.idReviwer ||
     item?.idResponsible
@@ -202,11 +206,20 @@ function mapOption(item) {
   };
 }
 
-function resolveEnvironmentKind(environment) {
-  const normalizedName = normalizeText(environment?.nome || environment?.name);
+function normalizeNormativeInternType(value) {
+  const numericValue = Number(value);
+  return [NORMATIVE_INTERN_TYPE.INTERNAL, NORMATIVE_INTERN_TYPE.EXTERNAL].includes(
+    numericValue,
+  )
+    ? numericValue
+    : "";
+}
 
-  if (normalizedName.includes("extern")) return "external";
-  if (normalizedName.includes("intern")) return "internal";
+function getEnvironmentKind(normativeInternType) {
+  const normalizedType = normalizeNormativeInternType(normativeInternType);
+
+  if (normalizedType === NORMATIVE_INTERN_TYPE.EXTERNAL) return "external";
+  if (normalizedType === NORMATIVE_INTERN_TYPE.INTERNAL) return "internal";
   return "";
 }
 
@@ -335,6 +348,13 @@ function resolveNotificationField(notification) {
 
   if (normalizedCode === "code" || normalizedMessage.includes("codigo")) {
     return "code";
+  }
+
+  if (
+    normalizedCode === "normativeinterntype" ||
+    normalizedMessage.includes("ambiente")
+  ) {
+    return "ambiente";
   }
 
   return "";
@@ -498,11 +518,10 @@ function mapNormativeToForm(record) {
     idNormative: record.idNormative || record.id || "",
     code: record.code || "",
     name: record.name || "",
-    ambiente:
-      record.idEnvironment ||
-      record.environment?.idEnvironment ||
-      record.environment?.id ||
-      "",
+    ambiente: normalizeNormativeInternType(
+      record.normativeInternType ??
+        record.environment?.id,
+    ),
     responsavel:
       record.idResponsible ||
       record.responsible?.idCollaborator ||
@@ -590,30 +609,8 @@ function mapNormativeToForm(record) {
   };
 }
 
-function getEnvironmentKind(environmentId, environments) {
-  const environment = environments.find(
-    (item) => String(item.id) === String(environmentId),
-  );
-
-  return resolveEnvironmentKind(environment);
-}
-
-function buildNormativeEnvironmentOptions(environments) {
-  return NORMATIVE_ENVIRONMENT_OPTIONS.map((preset) => {
-    const matchedEnvironment = environments.find(
-      (item) => resolveEnvironmentKind(item) === preset.kind,
-    );
-
-    if (matchedEnvironment) {
-      return {
-        ...matchedEnvironment,
-        nome: preset.nome,
-        kind: preset.kind,
-      };
-    }
-
-    return { ...preset };
-  });
+function buildNormativeEnvironmentOptions() {
+  return NORMATIVE_ENVIRONMENT_OPTIONS.map((option) => mapOption(option));
 }
 
 function buildSelectedValues(ids, options) {
@@ -751,7 +748,7 @@ function ColumnsLayouts() {
   const idUser = localStorage.getItem("id_user");
   const userName = localStorage.getItem("username") || "Usuário";
 
-  const [ambientes, setAmbientes] = useState([]);
+  const [ambientes] = useState(() => buildNormativeEnvironmentOptions());
   const [departamentos, setDepartamentos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [normaOrigens, setNormaOrigens] = useState([]);
@@ -882,11 +879,6 @@ function ColumnsLayouts() {
 
   const loadOptions = useCallback(async () => {
     const endpoints = [
-      {
-        url: `${API_URL}actives/environments`,
-        setter: setAmbientes,
-        transform: buildNormativeEnvironmentOptions,
-      },
       { url: `${API_URL}departments`, setter: setDepartamentos },
       { url: `${API_URL}normatives/types`, setter: setTipoNormas },
       { url: `${API_URL}normatives/regulatories`, setter: setReguladores },
@@ -1000,8 +992,8 @@ function ColumnsLayouts() {
   ]);
 
   const ambienteKind = useMemo(
-    () => getEnvironmentKind(formData.ambiente, ambientes),
-    [ambientes, formData.ambiente],
+    () => getEnvironmentKind(formData.ambiente),
+    [formData.ambiente],
   );
 
   const isExterno = ambienteKind === "external";
@@ -1095,6 +1087,8 @@ function ColumnsLayouts() {
   const canEditLastRevision = false;
   const canEditRisk = canEditGeneralFields;
   const canEditApprovalComment = canReplyApproval;
+  const canManageAttachments =
+    canEditGeneralFields || canEditReviewFields || canReplyApproval;
   const canRevogar =
     requisicao === "Editar" &&
     currentStatus === STATUS.VERSAO_FINAL &&
@@ -1104,7 +1098,6 @@ function ColumnsLayouts() {
     requisicao === "Editar" &&
     currentStatus === STATUS.VERSAO_FINAL &&
     isResponsible &&
-    !isExterno &&
     !isPostCreateEditing;
   const canSendElaborated =
     requisicao === "Editar" &&
@@ -1302,7 +1295,7 @@ function ColumnsLayouts() {
       idNormativeType: base.tipoNorma || null,
       idRegulatory: base.regulador || null,
       idResponsible: base.responsavel || null,
-      idEnvironment: base.ambiente || null,
+      normativeInternType: normalizeNormativeInternType(base.ambiente) || null,
       idReviwer: base.revisor || null,
       idOrigins: normalizeIdArray(base.normaOrigem, {
         exclude: [base.idNormative],
@@ -1662,7 +1655,8 @@ function ColumnsLayouts() {
         name: formData.name.trim(),
         idReviewer: formData.revisor || null,
         idResponsible: formData.responsavel || null,
-        idEnvironment: formData.ambiente || null,
+        normativeInternType:
+          normalizeNormativeInternType(formData.ambiente) || null,
       };
 
       const createResponse = await axios.post(
@@ -2149,7 +2143,7 @@ function ColumnsLayouts() {
 
   const handleEnvironmentChange = (_, newValue) => {
     const selectedEnvironmentId = newValue ? newValue.id : "";
-    const selectedKind = getEnvironmentKind(selectedEnvironmentId, ambientes);
+    const selectedKind = getEnvironmentKind(selectedEnvironmentId);
 
     withDirty((previous) => ({
       ...previous,
@@ -3131,7 +3125,7 @@ function ColumnsLayouts() {
                   <FileUploader
                     containerFolder={FILE_CONTAINER_FOLDER}
                     initialFiles={formData.files}
-                    disabled={!canEditGeneralFields}
+                    disabled={!canManageAttachments || loading}
                     onFilesChange={(files) => {
                       setHasChanges(true);
                       setFormData((previous) => ({

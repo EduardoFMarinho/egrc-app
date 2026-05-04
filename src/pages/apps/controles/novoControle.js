@@ -18,9 +18,13 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Tooltip,
+  IconButton,
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import CloseIcon from "@mui/icons-material/Close";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { enqueueSnackbar } from "notistack";
@@ -80,6 +84,8 @@ function ColumnsLayouts() {
   const [controleDados, setControleDados] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [deletedFiles, setDeletedFiles] = useState([]);
+  const [openProcessDialog, setOpenProcessDialog] = useState(false);
+  const [pendingProcessChange, setPendingProcessChange] = useState(null);
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
 
@@ -220,7 +226,7 @@ function ColumnsLayouts() {
       setTiposControles
     );
     fetchData(
-      `${process.env.REACT_APP_API_URL}controls/classifications`,
+      `${process.env.REACT_APP_API_URL}controls/classifications/1`,
       setClassificacoes
     );
     fetchData(
@@ -363,21 +369,30 @@ function ColumnsLayouts() {
             .filter(Boolean)
         );
 
-        setContasFiltradas(
-          contas.filter(
+        const isLinkedLocally = (item) => {
+          if (!formData.processo) return false;
+          const hasInIdProcesses = Array.isArray(item.idProcesses) && item.idProcesses.some(p => p === formData.processo || p?.id === formData.processo);
+          const hasInProcesses = Array.isArray(item.processes) && item.processes.some(p => p === formData.processo || p?.id === formData.processo);
+          return hasInIdProcesses || hasInProcesses;
+        };
+
+        const novasContasFiltradas = contas.filter(
             (conta) =>
               idsContaPermitidos.has(conta.id) ||
-              isOrphan(conta, ["processes", "idProcesses"])
-          )
+              isOrphan(conta, ["processes", "idProcesses"]) ||
+              isLinkedLocally(conta)
         );
+        setContasFiltradas(novasContasFiltradas);
 
-        setRiscosFiltrados(
-          riscos.filter(
+        const novosRiscosFiltrados = riscos.filter(
             (risco) =>
               idsRiscoPermitidos.has(risco.id) ||
-              isOrphan(risco, ["processes", "idProcesses"])
-          )
+              isOrphan(risco, ["processes", "idProcesses"]) ||
+              isLinkedLocally(risco)
         );
+        setRiscosFiltrados(novosRiscosFiltrados);
+
+
       } catch (error) {
         console.error("Erro ao buscar dependências do processo:", error);
       }
@@ -440,57 +455,7 @@ useEffect(() => {
     formData.compensadoControle,
   ]);
 
-  useEffect(() => {
-    if (!formData.processo || contas.length === 0) {
-      return;
-    }
 
-    const idsContaPermitidos = new Set(
-      contasFiltradas.map((conta) => conta.id)
-    );
-
-    setFormData((prev) => {
-      const contasAtuais = Array.isArray(prev.conta) ? prev.conta : [];
-      const contasValidas = contasAtuais.filter((id) =>
-        idsContaPermitidos.has(id)
-      );
-
-      if (contasValidas.length === contasAtuais.length) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        conta: contasValidas,
-      };
-    });
-  }, [formData.processo, contas.length, contasFiltradas]);
-
-  useEffect(() => {
-    if (!formData.processo || riscos.length === 0) {
-      return;
-    }
-
-    const idsRiscoPermitidos = new Set(
-      riscosFiltrados.map((risco) => risco.id)
-    );
-
-    setFormData((prev) => {
-      const riscosAtuais = Array.isArray(prev.risco) ? prev.risco : [];
-      const riscosValidos = riscosAtuais.filter((id) =>
-        idsRiscoPermitidos.has(id)
-      );
-
-      if (riscosValidos.length === riscosAtuais.length) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        risco: riscosValidos,
-      };
-    });
-  }, [formData.processo, riscos.length, riscosFiltrados]);
 
   const handleProcessCreated = (newProcesso) => {
     setProcessos((prevProcessos) => [...prevProcessos, newProcesso]);
@@ -573,21 +538,33 @@ useEffect(() => {
   };
 
   const handleSelectAll = (event, newValue) => {
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      if (allSelected) {
-        // Deselect all
-        setFormData({ ...formData, risco: [] });
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
+
+    if (lastItem && lastItem.id === "all_vinculadas") {
+      const vinculadasIds = riscosFiltrados.map(r => r.id);
+      const allVinculadasSelected = vinculadasIds.length > 0 && vinculadasIds.every(id => formData.risco.includes(id));
+      
+      if (allVinculadasSelected) {
+        setFormData({ ...formData, risco: formData.risco.filter(id => !vinculadasIds.includes(id)) });
       } else {
-        // Select all
-        setFormData({
-          ...formData,
-          risco: riscosFiltrados.map((risco) => risco.id),
-        });
+        const newSelection = new Set([...formData.risco, ...vinculadasIds]);
+        setFormData({ ...formData, risco: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all_outras") {
+      const vinculadasIds = new Set(riscosFiltrados.map(r => r.id));
+      const outrasIds = riscos.map(r => r.id).filter(id => !vinculadasIds.has(id));
+      const allOutrasSelected = outrasIds.length > 0 && outrasIds.every(id => formData.risco.includes(id));
+
+      if (allOutrasSelected) {
+        setFormData({ ...formData, risco: formData.risco.filter(id => !outrasIds.includes(id)) });
+      } else {
+        const newSelection = new Set([...formData.risco, ...outrasIds]);
+        setFormData({ ...formData, risco: Array.from(newSelection) });
       }
     } else {
       tratarMudancaInputGeral(
         "risco",
-        newValue.map((item) => item.id)
+        newValue.filter(item => item.id !== "all_vinculadas" && item.id !== "all_outras").map((item) => item.id)
       );
     }
   };
@@ -672,21 +649,33 @@ useEffect(() => {
   };
 
   const handleSelectAllContas = (event, newValue) => {
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      if (allSelectedContas) {
-        // Deselect all
-        setFormData({ ...formData, conta: [] });
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
+
+    if (lastItem && lastItem.id === "all_vinculadas") {
+      const vinculadasIds = contasFiltradas.map(c => c.id);
+      const allVinculadasSelected = vinculadasIds.length > 0 && vinculadasIds.every(id => formData.conta.includes(id));
+      
+      if (allVinculadasSelected) {
+        setFormData({ ...formData, conta: formData.conta.filter(id => !vinculadasIds.includes(id)) });
       } else {
-        // Select all
-        setFormData({
-          ...formData,
-          conta: contasFiltradas.map((conta) => conta.id),
-        });
+        const newSelection = new Set([...formData.conta, ...vinculadasIds]);
+        setFormData({ ...formData, conta: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all_outras") {
+      const vinculadasIds = new Set(contasFiltradas.map(c => c.id));
+      const outrasIds = contas.map(c => c.id).filter(id => !vinculadasIds.has(id));
+      const allOutrasSelected = outrasIds.length > 0 && outrasIds.every(id => formData.conta.includes(id));
+
+      if (allOutrasSelected) {
+        setFormData({ ...formData, conta: formData.conta.filter(id => !outrasIds.includes(id)) });
+      } else {
+        const newSelection = new Set([...formData.conta, ...outrasIds]);
+        setFormData({ ...formData, conta: Array.from(newSelection) });
       }
     } else {
       tratarMudancaInputGeral(
         "conta",
-        newValue.map((item) => item.id)
+        newValue.filter(item => item.id !== "all_vinculadas" && item.id !== "all_outras").map((item) => item.id)
       );
     }
   };
@@ -833,9 +822,8 @@ useEffect(() => {
     contasFiltradas.map((conta) => conta.id)
   );
   const allSelected =
-    riscosFiltrados.length > 0 &&
-    formData.risco.filter((id) => riscoIdsFiltrados.has(id)).length ===
-      riscosFiltrados.length;
+    riscos.length > 0 &&
+    formData.risco.length === riscos.length;
   const allSelectedAtivos =
     formData.ativo.length === ativos.length && ativos.length > 0;
   const allSelectedIpes =
@@ -854,9 +842,8 @@ useEffect(() => {
     formData.compensaControle.length === compensaControles.length &&
     compensaControles.length > 0;
   const allSelectedContas =
-    contasFiltradas.length > 0 &&
-    formData.conta.filter((id) => contaIdsFiltrados.has(id)).length ===
-      contasFiltradas.length;
+    contas.length > 0 &&
+    formData.conta.length === contas.length;
   const allSelectedObjetivoControles =
     formData.objetivoControle.length === objetivoControles.length &&
     objetivoControles.length > 0;
@@ -1043,6 +1030,24 @@ useEffect(() => {
     }
   };
 
+  const trocarProcessoLimpar = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange,
+      conta: [],
+      risco: [],
+    }));
+    setOpenProcessDialog(false);
+  };
+
+  const trocarProcessoManter = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange,
+    }));
+    setOpenProcessDialog(false);
+  };
+
   return (
     <>
       <LoadingOverlay isActive={loading} />
@@ -1100,10 +1105,16 @@ useEffect(() => {
                   ) || null
                 }
                 onChange={(event, newValue) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    processo: newValue ? newValue.id : "",
-                  }));
+                  const newProcessId = newValue ? newValue.id : "";
+                  if ((formData.conta.length > 0 || formData.risco.length > 0) && formData.processo && formData.processo !== newProcessId) {
+                      setPendingProcessChange(newProcessId);
+                      setOpenProcessDialog(true);
+                  } else {
+                      setFormData((prev) => ({
+                        ...prev,
+                        processo: newProcessId,
+                      }));
+                  }
                 }}
                 renderInput={(params) => (
                   <TextField
@@ -1119,6 +1130,191 @@ useEffect(() => {
 
           {requisicao === "Editar" && (
             <>
+              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ display: 'flex', alignItems: 'center' }}>
+                    Contas{" "}
+                    <Tooltip title="O preenchimento deste campo e seu cadastro rápido são vinculados ao processo selecionado." arrow>
+                      <InfoOutlinedIcon sx={{ fontSize: 16, ml: 0.5, color: 'text.secondary' }} />
+                    </Tooltip>
+                    <DrawerConta
+                      buttonSx={{
+                        marginLeft: 1.5,
+                        height: "20px",
+                        minWidth: "20px",
+                      }}
+                      processoSelecionado={processos.find((p) => p.id === formData.processo)}
+                      onAccountCreated={handleAccountCreated}
+                    />
+                  </InputLabel>
+                  <Autocomplete
+                    noOptionsText="Nenhuma conta encontrada"
+                    multiple
+                    disableCloseOnSelect
+                    options={
+                      contas.length > 0
+                        ? [
+                            ...(contasFiltradas.length > 0 ? [{ id: "all_vinculadas", nome: "Selecionar todas vinculadas" }] : []),
+                            { id: "all_outras", nome: "Selecionar todas sem vinculação" },
+                            ...contas,
+                          ].sort((a, b) => {
+                            const isAVinculada = a.id === "all_vinculadas" || contasFiltradas.some(c => c.id === a.id);
+                            const isBVinculada = b.id === "all_vinculadas" || contasFiltradas.some(c => c.id === b.id);
+                            if (isAVinculada && !isBVinculada) return -1;
+                            if (!isAVinculada && isBVinculada) return 1;
+
+                            if (a.id === "all_vinculadas") return -1;
+                            if (b.id === "all_vinculadas") return 1;
+                            if (a.id === "all_outras") return -1;
+                            if (b.id === "all_outras") return 1;
+
+                            return 0;
+                          })
+                        : []
+                    }
+                    groupBy={(option) => {
+                      const isVinculada = option.id === "all_vinculadas" || contasFiltradas.some(c => c.id === option.id);
+                      return isVinculada 
+                        ? "Vinculadas ao Processo Selecionado" 
+                        : "Outras Contas (Sem Vinculação)";
+                    }}
+                    getOptionLabel={(option) => option.nome}
+                    value={formData.conta.map(
+                      (id) => contas.find((conta) => conta.id === id) || id
+                    )}
+                    onChange={handleSelectAllContas}
+                    isOptionEqualToValue={(option, value) =>
+                      option.id === value.id
+                    }
+                    renderOption={(props, option, { selected }) => {
+                      let isChecked = selected;
+                      if (option.id === "all_vinculadas") {
+                        const vinculadasIds = contasFiltradas.map(c => c.id);
+                        isChecked = vinculadasIds.length > 0 && vinculadasIds.every(id => formData.conta.includes(id));
+                      } else if (option.id === "all_outras") {
+                        const vinculadasIds = new Set(contasFiltradas.map(c => c.id));
+                        const outrasIds = contas.map(c => c.id).filter(id => !vinculadasIds.has(id));
+                        isChecked = outrasIds.length > 0 && outrasIds.every(id => formData.conta.includes(id));
+                      }
+                      return (
+                        <li {...props}>
+                          <Grid container alignItems="center">
+                            <Grid item>
+                              <Checkbox checked={isChecked} />
+                            </Grid>
+                            <Grid item xs>
+                              {option.nome}
+                            </Grid>
+                          </Grid>
+                        </li>
+                      );
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        error={
+                          (formData.conta.length === 0 ||
+                            formData.conta.every((val) => val === 0)) &&
+                          formValidation.conta === false
+                        }
+                      />
+                    )}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={6} mb={5}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ display: 'flex', alignItems: 'center' }}>
+                    Riscos{" "}
+                    <Tooltip title="O preenchimento deste campo e seu cadastro rápido são vinculados ao processo selecionado." arrow>
+                      <InfoOutlinedIcon sx={{ fontSize: 16, ml: 0.5, color: 'text.secondary' }} />
+                    </Tooltip>
+                    <DrawerRisco
+                      buttonSx={{
+                        marginLeft: 1.5,
+                        height: "20px",
+                        minWidth: "20px",
+                      }}
+                      processoSelecionado={processos.find((p) => p.id === formData.processo)}
+                      onRiscoCreated={handleRiskCreated}
+                    />
+                  </InputLabel>
+                  <Autocomplete
+                    noOptionsText="Nenhum risco encontrado"
+                    multiple
+                    disableCloseOnSelect
+                    options={
+                      riscos.length > 0
+                        ? [
+                            ...(riscosFiltrados.length > 0 ? [{ id: "all_vinculadas", nome: "Selecionar todos vinculados" }] : []),
+                            { id: "all_outras", nome: "Selecionar todos sem vinculação" },
+                            ...riscos,
+                          ].sort((a, b) => {
+                            const isAVinculada = a.id === "all_vinculadas" || riscosFiltrados.some(r => r.id === a.id);
+                            const isBVinculada = b.id === "all_vinculadas" || riscosFiltrados.some(r => r.id === b.id);
+                            if (isAVinculada && !isBVinculada) return -1;
+                            if (!isAVinculada && isBVinculada) return 1;
+
+                            if (a.id === "all_vinculadas") return -1;
+                            if (b.id === "all_vinculadas") return 1;
+                            if (a.id === "all_outras") return -1;
+                            if (b.id === "all_outras") return 1;
+
+                            return 0;
+                          })
+                        : []
+                    }
+                    groupBy={(option) => {
+                      const isVinculada = option.id === "all_vinculadas" || riscosFiltrados.some(r => r.id === option.id);
+                      return isVinculada 
+                        ? "Vinculados ao Processo Selecionado" 
+                        : "Outros Riscos (Sem Vinculação)";
+                    }}
+                    getOptionLabel={(option) => option.nome}
+                    value={formData.risco.map(
+                      (id) => riscos.find((risco) => risco.id === id) || id
+                    )}
+                    onChange={handleSelectAll}
+                    isOptionEqualToValue={(option, value) =>
+                      option.id === value.id
+                    }
+                    renderOption={(props, option, { selected }) => {
+                      let isChecked = selected;
+                      if (option.id === "all_vinculadas") {
+                        const vinculadasIds = riscosFiltrados.map(r => r.id);
+                        isChecked = vinculadasIds.length > 0 && vinculadasIds.every(id => formData.risco.includes(id));
+                      } else if (option.id === "all_outras") {
+                        const vinculadasIds = new Set(riscosFiltrados.map(r => r.id));
+                        const outrasIds = riscos.map(r => r.id).filter(id => !vinculadasIds.has(id));
+                        isChecked = outrasIds.length > 0 && outrasIds.every(id => formData.risco.includes(id));
+                      }
+                      return (
+                        <li {...props}>
+                          <Grid container alignItems="center">
+                            <Grid item>
+                              <Checkbox checked={isChecked} />
+                            </Grid>
+                            <Grid item xs>
+                              {option.nome}
+                            </Grid>
+                          </Grid>
+                        </li>
+                      );
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        error={
+                          (formData.risco.length === 0 ||
+                            formData.risco.every((val) => val === 0)) &&
+                          formValidation.risco === false
+                        }
+                      />
+                    )}
+                  />
+                </Stack>
+              </Grid>
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
                   <InputLabel>Descrição</InputLabel>
@@ -1366,70 +1562,7 @@ useEffect(() => {
                 </Stack>
               </Grid>
 
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>
-                    Contas{" "}
-                    <DrawerConta
-                      buttonSx={{
-                        marginLeft: 1.5,
-                        height: "20px",
-                        minWidth: "20px",
-                      }}
-                      onAccountCreated={handleAccountCreated}
-                    />
-                  </InputLabel>
-                  <Autocomplete
-                    noOptionsText="Nenhuma conta encontrada"
-                    multiple
-                    disableCloseOnSelect
-                    options={
-                      contasFiltradas.length > 0
-                        ? [
-                            { id: "all", nome: "Selecionar todas" },
-                            ...contasFiltradas,
-                          ]
-                        : []
-                    }
-                    getOptionLabel={(option) => option.nome}
-                    value={formData.conta.map(
-                      (id) => contas.find((conta) => conta.id === id) || id
-                    )}
-                    onChange={handleSelectAllContas}
-                    isOptionEqualToValue={(option, value) =>
-                      option.id === value.id
-                    }
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props}>
-                        <Grid container alignItems="center">
-                          <Grid item>
-                            <Checkbox
-                              checked={
-                                option.id === "all"
-                                  ? allSelectedContas
-                                  : selected
-                              }
-                            />
-                          </Grid>
-                          <Grid item xs>
-                            {option.nome}
-                          </Grid>
-                        </Grid>
-                      </li>
-                    )}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        error={
-                          (formData.conta.length === 0 ||
-                            formData.conta.every((val) => val === 0)) &&
-                          formValidation.conta === false
-                        }
-                      />
-                    )}
-                  />
-                </Stack>
-              </Grid>
+
 
               <Grid item xs={6} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
@@ -1522,68 +1655,7 @@ useEffect(() => {
                 </Stack>
               </Grid>
 
-              <Grid item xs={6} mb={5}>
-                <Stack spacing={1}>
-                  <InputLabel>
-                    Riscos{" "}
-                    <DrawerRisco
-                      buttonSx={{
-                        marginLeft: 1.5,
-                        height: "20px",
-                        minWidth: "20px",
-                      }}
-                      onRiscoCreated={handleRiskCreated}
-                    />
-                  </InputLabel>
-                  <Autocomplete
-                    noOptionsText="Nenhum risco encontrado"
-                    multiple
-                    disableCloseOnSelect
-                    options={
-                      riscosFiltrados.length > 0
-                        ? [
-                            { id: "all", nome: "Selecionar todos" },
-                            ...riscosFiltrados,
-                          ]
-                        : []
-                    }
-                    getOptionLabel={(option) => option.nome}
-                    value={formData.risco.map(
-                      (id) => riscos.find((risco) => risco.id === id) || id
-                    )}
-                    onChange={handleSelectAll}
-                    isOptionEqualToValue={(option, value) =>
-                      option.id === value.id
-                    }
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props}>
-                        <Grid container alignItems="center">
-                          <Grid item>
-                            <Checkbox
-                              checked={
-                                option.id === "all" ? allSelected : selected
-                              }
-                            />
-                          </Grid>
-                          <Grid item xs>
-                            {option.nome}
-                          </Grid>
-                        </Grid>
-                      </li>
-                    )}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        error={
-                          (formData.risco.length === 0 ||
-                            formData.risco.every((val) => val === 0)) &&
-                          formValidation.risco === false
-                        }
-                      />
-                    )}
-                  />
-                </Stack>
-              </Grid>
+
 
               <Grid item xs={6} mb={5}>
                 <Stack spacing={1}>
@@ -2114,6 +2186,27 @@ useEffect(() => {
                 autoFocus
               >
                 Adicionar mais informações
+              </Button>
+            </DialogActions>
+          </Dialog>
+          <Dialog open={openProcessDialog} onClose={() => setOpenProcessDialog(false)} maxWidth="sm" fullWidth>
+            <DialogTitle sx={{ fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Alteração de Processo
+              <IconButton onClick={() => setOpenProcessDialog(false)} size="small" sx={{ p: 0 }}>
+                <CloseIcon />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
+              <DialogContentText>
+                Deseja manter os campos de contas e riscos selecionados?
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions sx={{ p: 2, justifyContent: 'center', gap: 2 }}>
+              <Button onClick={trocarProcessoLimpar} color="error" variant="outlined">
+                Limpar Campos
+              </Button>
+              <Button onClick={trocarProcessoManter} color="primary" variant="contained">
+                Manter Campos
               </Button>
             </DialogActions>
           </Dialog>
