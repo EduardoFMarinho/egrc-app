@@ -109,7 +109,14 @@ export const fuzzyFilter = (row, columnId, value) => {
 
 // ==============================|| REACT TABLE - LIST ||============================== //
 
-function ReactTable({ data, columns, processosTotal, isLoading }) {
+function ReactTable({
+  data,
+  columns,
+  processosTotal,
+  isLoading,
+  actionPlanId,
+  refreshData,
+}) {
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
   const matchDownSM = useMediaQuery(theme.breakpoints.down("sm"));
@@ -267,6 +274,9 @@ function ReactTable({ data, columns, processosTotal, isLoading }) {
               }}
             >
               <DrawerAcionista
+                actionPlanId={actionPlanId}
+                processoSelecionadoId={actionPlanId}
+                onStepCreated={refreshData}
                 buttonSx={{
                   marginLeft: 1.5,
                   height: "20px",
@@ -497,6 +507,7 @@ ReactTable.propTypes = {
   modalToggler: PropTypes.func,
   renderRowSubComponent: PropTypes.any,
   refreshData: PropTypes.func,
+  actionPlanId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
 
 function ActionCell({ row, refreshData, onEdit }) {
@@ -754,17 +765,18 @@ ActionCell.propTypes = {
 // ==============================|| LISTAGEM ||============================== //
 
 // Componente principal da página de listagem de registros
-const ListagemAvaliacoes = () => {
+const ListagemAvaliacoes = ({ actionPlanId: actionPlanIdProp }) => {
   const { token } = useToken();
   const theme = useTheme();
   const location = useLocation();
   const { processoSelecionadoId } = location.state || {};
+  const actionPlanId = actionPlanIdProp ?? processoSelecionadoId;
   const [formData, setFormData] = useState({ refreshCount: 0 });
   const {
     steps: lists,
     isLoading,
     refetch,
-  } = useAvaliacoesMock(formData, processoSelecionadoId);
+  } = useAvaliacoesMock(formData, actionPlanId);
   const processosTotal = lists ? lists.length : 0;
   const [open, setOpen] = useState(false);
   const [customerModal, setCustomerModal] = useState(false);
@@ -992,6 +1004,7 @@ const ListagemAvaliacoes = () => {
                   setSelectedCustomer(null);
                 },
                 processosTotal,
+                actionPlanId,
                 onFormDataChange: handleFormDataChange,
                 isLoading,
                 refreshData: refreshOrgaos,
@@ -1006,6 +1019,8 @@ const ListagemAvaliacoes = () => {
         open={drawerOpen}
         onClose={handleCloseDrawer}
         acionista={selectedAcionista}
+        actionPlanId={actionPlanId}
+        processoSelecionadoId={actionPlanId}
         hideButton={true}
       />
 
@@ -1017,6 +1032,10 @@ const ListagemAvaliacoes = () => {
       />
     </>
   );
+};
+
+ListagemAvaliacoes.propTypes = {
+  actionPlanId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
 
 export default ListagemAvaliacoes;
