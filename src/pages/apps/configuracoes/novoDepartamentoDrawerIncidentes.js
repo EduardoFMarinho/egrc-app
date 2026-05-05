@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import {
   Button,
   Tooltip,
+  Autocomplete,
   TextField,
   Grid,
   Stack,
@@ -20,15 +21,18 @@ import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
 import { useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import axios from "axios";
 
-function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
+function ColumnsLayoutsDrawer({
+  buttonSx,
+  onDepartmentCreated,
+  processosSelecionados = [],
+}) {
   const [open, setOpen] = useState(false);
   const { token } = useToken();
-  const location = useLocation();
-  const { dadosApi } = location.state || {};
   const [nomeDepartamento, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
+  const [processos, setProcessos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [requisicao] = useState("Criar");
   const [mensagemFeedback] = useState("cadastrado");
@@ -36,18 +40,58 @@ function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
 
+  const [formData, setFormData] = useState({
+    processo: [],
+  });
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
 
   useEffect(() => {
+    fetchData(`${process.env.REACT_APP_API_URL}processes`, setProcessos);
+  }, []);
+
+  const fetchData = async (url, setState) => {
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const transformedData = response.data.map((item) => ({
+        id:
+          item.idDepartment ||
+          item.idProcess ||
+          item.idRisk ||
+          item.idIncident ||
+          item.idCollaborator,
+        nome: item.name,
+        ...item,
+      }));
+
+      setState(transformedData);
+    } catch (error) {
+      console.error("Erro ao buscar dados:", error);
+    }
+  };
+
+  useEffect(() => {
     if (open) {
       setNome("");
       setCodigo("");
-      setFormValidation({ nomeDepartamento: true, codigo: true });
+      setFormValidation({
+        nomeDepartamento: true,
+        codigo: true,
+        processo: true,
+      });
+      setFormData({
+        processo: processosSelecionados.map((processo) => processo.id),
+      });
       setHasChanges(false);
     }
-  }, [open]);
+  }, [open, processosSelecionados]);
 
   const [formValidation, setFormValidation] = useState({
     nomeDepartamento: true,
@@ -82,6 +126,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
       payload = {
         name: nomeDepartamento,
         code: codigo,
+        idProcesses: formData.processo.length > 0 ? formData.processo : null,
       };
     }
 
@@ -102,6 +147,25 @@ function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
 
       const data = await response.json();
 
+      if (formData.processo && formData.processo.length > 0) {
+        const putPayload = {
+          idDepartment: data.data.idDepartment,
+          name: nomeDepartamento,
+          code: codigo,
+          idProcesses: formData.processo,
+          active: true,
+        };
+
+        await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(putPayload),
+        });
+      }
+
       enqueueSnackbar(`Departamento ${mensagemFeedback} com sucesso!`, {
         variant: "success",
       });
@@ -111,6 +175,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
         const novoDepartamento = {
           id: data.data.idDepartment, 
           nome: nomeDepartamento,
+          idProcesses: formData.processo,
         };
         onDepartmentCreated(novoDepartamento);
       }
@@ -198,6 +263,29 @@ function ColumnsLayoutsDrawer({ buttonSx, onDepartmentCreated }) {
                     error={
                       !nomeDepartamento && !formValidation.nomeDepartamento
                     }
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
+                    Processo
+                  </InputLabel>
+                  <Autocomplete
+                    multiple
+                    options={processos}
+                    getOptionLabel={(option) => option.nome || ""}
+                    value={processos.filter((processo) =>
+                      formData.processo.includes(processo.id),
+                    )}
+                    onChange={(event, newValue) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        processo: newValue.map((item) => item.id),
+                      }));
+                    }}
+                    renderInput={(params) => <TextField {...params} />}
                   />
                 </Stack>
               </Grid>

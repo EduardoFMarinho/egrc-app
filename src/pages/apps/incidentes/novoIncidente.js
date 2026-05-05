@@ -13,8 +13,10 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Tooltip,
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { DatePicker } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -42,6 +44,8 @@ function ColumnsLayouts() {
   const [riscos, setRiscoAssociados] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
   const [processos, setProcessos] = useState([]);
+  const [riscosFiltrados, setRiscosFiltrados] = useState([]);
+  const [departamentosFiltrados, setDepartamentosFiltrados] = useState([]);
   const [descricao, setDescricao] = useState("");
   const [causaIncidente, setCausaIncidente] = useState("");
   const [codigo, setCodigo] = useState("");
@@ -58,6 +62,8 @@ function ColumnsLayouts() {
   const [mensagemFeedback, setMensagemFeedback] = useState("cadastrado");
   const [incidenteDados, setIncidenteDados] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [openProcessDialog, setOpenProcessDialog] = useState(false);
+  const [pendingProcessChange, setPendingProcessChange] = useState(null);
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
 
@@ -122,6 +128,41 @@ function ColumnsLayouts() {
     }
   };
 
+  const extractRelationIds = (items = [], keys = []) => {
+    if (!Array.isArray(items)) return [];
+
+    return items
+      .map((item) => {
+        if (!item) return null;
+        if (typeof item !== "object") return item;
+
+        for (const key of keys) {
+          if (item[key]) {
+            return item[key];
+          }
+        }
+
+        return item.id || null;
+      })
+      .filter(Boolean);
+  };
+
+  const isOrphan = (item, keys) => {
+    let hasField = false;
+
+    for (const key of keys) {
+      if (item[key] !== undefined) {
+        hasField = true;
+
+        if (Array.isArray(item[key]) && item[key].length > 0) {
+          return false;
+        }
+      }
+    }
+
+    return hasField;
+  };
+
   useEffect(() => {
     fetchData(
       `${process.env.REACT_APP_API_URL}incidents/types`,
@@ -169,7 +210,9 @@ function ColumnsLayouts() {
             causa: Array.isArray(data.causes)
               ? data.causes.map((u) => u.idCause)
               : [],
-            departamento: data.idDepartments,
+            departamento: Array.isArray(data.idDepartments)
+              ? data.idDepartments
+              : [],
             fator: Array.isArray(data.factors)
               ? data.factors.map((u) => u.idFactor)
               : [],
@@ -191,9 +234,9 @@ function ColumnsLayouts() {
             tipoIncidente: data.idIncidentType || null,
             controle: data.idControls || null,
             framework: data.idFramework || null,
-            processo: data.idProcesses || null,
+            processo: Array.isArray(data.idProcesses) ? data.idProcesses : [],
             responsavel: data.idResponsible || null,
-            risco: data.idRisks || null,
+            risco: Array.isArray(data.idRisks) ? data.idRisks : [],
             ameaca: data.idThreats || null,
             tratamento: data.idTreatment || null,
           }));
@@ -220,6 +263,86 @@ function ColumnsLayouts() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dadosApi]);
 
+  useEffect(() => {
+    const atualizarDependentesPorProcesso = async () => {
+      const processosSelecionados = Array.isArray(formData.processo)
+        ? formData.processo
+        : [];
+
+      if (processosSelecionados.length === 0) {
+        setRiscosFiltrados(riscos);
+        setDepartamentosFiltrados(departamentos);
+        return;
+      }
+
+      try {
+        const processResponses = await Promise.all(
+          processosSelecionados.map((id) =>
+            axios.get(`${process.env.REACT_APP_API_URL}processes/${id}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }),
+          ),
+        );
+
+        const idsRiscoPermitidos = new Set();
+        const idsDepartamentoPermitidos = new Set();
+
+        processResponses.forEach((response) => {
+          extractRelationIds(
+            response.data.risks || response.data.idRisks || [],
+            ["idRisk"],
+          ).forEach((idRisco) => idsRiscoPermitidos.add(idRisco));
+
+          extractRelationIds(
+            response.data.departments || response.data.idDepartments || [],
+            ["idDepartment"],
+          ).forEach((idDepartamento) =>
+            idsDepartamentoPermitidos.add(idDepartamento),
+          );
+        });
+
+        const isLinkedLocally = (item) => {
+          const idsProcessosRelacionados = extractRelationIds(
+            item.idProcesses || item.processes || [],
+            ["idProcess"],
+          );
+
+          return idsProcessosRelacionados.some((id) =>
+            processosSelecionados.includes(id),
+          );
+        };
+
+        setRiscosFiltrados(
+          riscos.filter(
+            (risco) =>
+              idsRiscoPermitidos.has(risco.id) ||
+              isOrphan(risco, ["processes", "idProcesses"]) ||
+              isLinkedLocally(risco),
+          ),
+        );
+
+        setDepartamentosFiltrados(
+          departamentos.filter(
+            (departamento) =>
+              idsDepartamentoPermitidos.has(departamento.id) ||
+              isOrphan(departamento, ["processes", "idProcesses"]) ||
+              isLinkedLocally(departamento),
+          ),
+        );
+      } catch (error) {
+        console.error("Erro ao filtrar riscos e departamentos do incidente:", error);
+        setRiscosFiltrados(riscos);
+        setDepartamentosFiltrados(departamentos);
+      }
+    };
+
+    if (riscos.length > 0 || departamentos.length > 0) {
+      atualizarDependentesPorProcesso();
+    }
+  }, [formData.processo, riscos, departamentos, token]);
+
   const tratarMudancaInputGeral = (field, value) => {
     if (field === "tipoIncidente") {
       setFormData({ ...formData, [field]: value ? value.id : null });
@@ -229,9 +352,14 @@ function ColumnsLayouts() {
   };
 
   const handleDepartmentCreated = (newDepartamento) => {
+    const departamentoNormalizado = {
+      ...newDepartamento,
+      idProcesses: newDepartamento.idProcesses || [],
+    };
+
     setDepartamentos((prevDepartamentos) => [
       ...prevDepartamentos,
-      newDepartamento,
+      departamentoNormalizado,
     ]);
     setFormData((prev) => ({
       ...prev,
@@ -248,7 +376,12 @@ function ColumnsLayouts() {
   };
 
   const handleRiskCreated = (newRisco) => {
-    setRiscoAssociados((prevRiscos) => [...prevRiscos, newRisco]);
+    const riscoNormalizado = {
+      ...newRisco,
+      idProcesses: newRisco.idProcesses || [],
+    };
+
+    setRiscoAssociados((prevRiscos) => [...prevRiscos, riscoNormalizado]);
     setFormData((prev) => ({
       ...prev,
       risco: [...prev.risco, newRisco.id],
@@ -256,7 +389,42 @@ function ColumnsLayouts() {
   };
 
   const handleSelectAll = (event, newValue) => {
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
+
+    if (lastItem && lastItem.id === "all_vinculadas") {
+      const vinculadasIds = riscosFiltrados.map((risco) => risco.id);
+      const allVinculadasSelected =
+        vinculadasIds.length > 0 &&
+        vinculadasIds.every((id) => formData.risco.includes(id));
+
+      if (allVinculadasSelected) {
+        setFormData({
+          ...formData,
+          risco: formData.risco.filter((id) => !vinculadasIds.includes(id)),
+        });
+      } else {
+        const newSelection = new Set([...formData.risco, ...vinculadasIds]);
+        setFormData({ ...formData, risco: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all_outras") {
+      const vinculadasIds = new Set(riscosFiltrados.map((risco) => risco.id));
+      const outrasIds = riscos
+        .map((risco) => risco.id)
+        .filter((id) => !vinculadasIds.has(id));
+      const allOutrasSelected =
+        outrasIds.length > 0 &&
+        outrasIds.every((id) => formData.risco.includes(id));
+
+      if (allOutrasSelected) {
+        setFormData({
+          ...formData,
+          risco: formData.risco.filter((id) => !outrasIds.includes(id)),
+        });
+      } else {
+        const newSelection = new Set([...formData.risco, ...outrasIds]);
+        setFormData({ ...formData, risco: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all") {
       if (formData.risco.length === riscos.length) {
         setFormData({ ...formData, risco: [] });
       } else {
@@ -265,13 +433,66 @@ function ColumnsLayouts() {
     } else {
       tratarMudancaInputGeral(
         "risco",
-        newValue.map((item) => item.id),
+        newValue
+          .filter(
+            (item) => item.id !== "all_vinculadas" && item.id !== "all_outras" && item.id !== "all",
+          )
+          .map((item) => item.id),
       );
     }
   };
 
   const handleSelectAllDepartamentos = (event, newValue) => {
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
+
+    if (lastItem && lastItem.id === "all_vinculadas") {
+      const vinculadasIds = departamentosFiltrados.map(
+        (departamento) => departamento.id,
+      );
+      const allVinculadasSelected =
+        vinculadasIds.length > 0 &&
+        vinculadasIds.every((id) => formData.departamento.includes(id));
+
+      if (allVinculadasSelected) {
+        setFormData({
+          ...formData,
+          departamento: formData.departamento.filter(
+            (id) => !vinculadasIds.includes(id),
+          ),
+        });
+      } else {
+        const newSelection = new Set([
+          ...formData.departamento,
+          ...vinculadasIds,
+        ]);
+        setFormData({ ...formData, departamento: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all_outras") {
+      const vinculadasIds = new Set(
+        departamentosFiltrados.map((departamento) => departamento.id),
+      );
+      const outrasIds = departamentos
+        .map((departamento) => departamento.id)
+        .filter((id) => !vinculadasIds.has(id));
+      const allOutrasSelected =
+        outrasIds.length > 0 &&
+        outrasIds.every((id) => formData.departamento.includes(id));
+
+      if (allOutrasSelected) {
+        setFormData({
+          ...formData,
+          departamento: formData.departamento.filter(
+            (id) => !outrasIds.includes(id),
+          ),
+        });
+      } else {
+        const newSelection = new Set([
+          ...formData.departamento,
+          ...outrasIds,
+        ]);
+        setFormData({ ...formData, departamento: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all") {
       if (formData.departamento.length === departamentos.length) {
         setFormData({ ...formData, departamento: [] });
       } else {
@@ -283,27 +504,63 @@ function ColumnsLayouts() {
     } else {
       tratarMudancaInputGeral(
         "departamento",
-        newValue.map((item) => item.id),
+        newValue
+          .filter(
+            (item) => item.id !== "all_vinculadas" && item.id !== "all_outras" && item.id !== "all",
+          )
+          .map((item) => item.id),
       );
     }
   };
 
   const handleSelectAll2 = (event, newValue) => {
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      if (formData.processo.length === processos.length) {
-        setFormData({ ...formData, processo: [] });
-      } else {
-        setFormData({
-          ...formData,
-          processo: processos.map((processo) => processo.id),
-        });
-      }
-    } else {
-      tratarMudancaInputGeral(
-        "processo",
-        newValue.map((item) => item.id),
-      );
+    const novosIds =
+      newValue.length > 0 && newValue[newValue.length - 1].id === "all"
+        ? formData.processo.length === processos.length
+          ? []
+          : processos.map((processo) => processo.id)
+        : newValue.map((item) => item.id);
+
+    const processosAtuais = Array.isArray(formData.processo)
+      ? formData.processo
+      : [];
+    const houveRemocao = processosAtuais.some((id) => !novosIds.includes(id));
+    const possuiDependentesSelecionados =
+      (Array.isArray(formData.risco) && formData.risco.length > 0) ||
+      (Array.isArray(formData.departamento) && formData.departamento.length > 0);
+
+    if (houveRemocao && possuiDependentesSelecionados) {
+      setPendingProcessChange(novosIds);
+      setOpenProcessDialog(true);
+      return;
     }
+
+    tratarMudancaInputGeral("processo", novosIds);
+  };
+
+  const trocarProcessoLimpar = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange || [],
+      risco: [],
+      departamento: [],
+    }));
+    setPendingProcessChange(null);
+    setOpenProcessDialog(false);
+  };
+
+  const trocarProcessoManter = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange || [],
+    }));
+    setPendingProcessChange(null);
+    setOpenProcessDialog(false);
+  };
+
+  const fecharDialogoProcesso = () => {
+    setPendingProcessChange(null);
+    setOpenProcessDialog(false);
   };
 
   const voltarParaCadastroMenu = () => {
@@ -328,13 +585,8 @@ function ColumnsLayouts() {
     tiposIncidentes: true,
   });
 
-  const allSelected =
-    formData.risco.length === riscos.length && riscos.length > 0;
   const allSelected2 =
     formData.processo.length === processos.length && processos.length > 0;
-  const allSelectedDepartamentos =
-    formData.departamento.length === departamentos.length &&
-    departamentos.length > 0;
 
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
@@ -635,127 +887,6 @@ function ColumnsLayouts() {
               <Grid item xs={6} mb={5}>
                 <Stack spacing={1}>
                   <InputLabel>
-                    Riscos{" "}
-                    <DrawerRisco
-                      buttonSx={{
-                        marginLeft: 1.5,
-                        height: "20px",
-                        minWidth: "20px",
-                      }}
-                      onRiscoCreated={handleRiskCreated}
-                    />
-                  </InputLabel>
-                  <Autocomplete
-                    multiple
-                    disableCloseOnSelect
-                    options={[
-                      { id: "all", nome: "Selecionar todos" },
-                      ...riscos,
-                    ]}
-                    getOptionLabel={(option) => option.nome}
-                    value={formData.risco.map(
-                      (id) => riscos.find((risco) => risco.id === id) || id,
-                    )}
-                    onChange={handleSelectAll}
-                    isOptionEqualToValue={(option, value) =>
-                      option.id === value.id
-                    }
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props}>
-                        <Grid container alignItems="center">
-                          <Grid item>
-                            <Checkbox
-                              checked={
-                                option.id === "all" ? allSelected : selected
-                              }
-                            />
-                          </Grid>
-                          <Grid item xs>
-                            {option.nome}
-                          </Grid>
-                        </Grid>
-                      </li>
-                    )}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        error={
-                          (formData.risco.length === 0 ||
-                            formData.risco.every((val) => val === 0)) &&
-                          formValidation.risco === false
-                        }
-                      />
-                    )}
-                  />
-                </Stack>
-              </Grid>
-
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>
-                    Departamentos afetados{" "}
-                    <DrawerDepartamento
-                      buttonSx={{
-                        marginLeft: 1.5,
-                        height: "20px",
-                        minWidth: "20px",
-                      }}
-                      onDepartmentCreated={handleDepartmentCreated}
-                    />
-                  </InputLabel>
-                  <Autocomplete
-                    multiple
-                    disableCloseOnSelect
-                    options={[
-                      { id: "all", nome: "Selecionar todos" },
-                      ...departamentos,
-                    ]}
-                    getOptionLabel={(option) => option.nome}
-                    value={formData.departamento.map(
-                      (id) =>
-                        departamentos.find(
-                          (departamento) => departamento.id === id,
-                        ) || id,
-                    )}
-                    onChange={handleSelectAllDepartamentos}
-                    isOptionEqualToValue={(option, value) =>
-                      option.id === value.id
-                    }
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props}>
-                        <Grid container alignItems="center">
-                          <Grid item>
-                            <Checkbox
-                              checked={
-                                option.id === "all"
-                                  ? allSelectedDepartamentos
-                                  : selected
-                              }
-                            />
-                          </Grid>
-                          <Grid item xs>
-                            {option.nome}
-                          </Grid>
-                        </Grid>
-                      </li>
-                    )}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        error={
-                          (formData.departamento.length === 0 ||
-                            formData.departamento.every((val) => val === 0)) &&
-                          formValidation.departamento === false
-                        }
-                      />
-                    )}
-                  />
-                </Stack>
-              </Grid>
-
-              <Grid item xs={6} mb={5}>
-                <Stack spacing={1}>
-                  <InputLabel>
                     Processos{" "}
                     <DrawerProcesso
                       buttonSx={{
@@ -769,10 +900,14 @@ function ColumnsLayouts() {
                   <Autocomplete
                     multiple
                     disableCloseOnSelect
-                    options={[
-                      { id: "all", nome: "Selecionar todas" },
-                      ...processos,
-                    ]}
+                    options={
+                      processos.length > 0
+                        ? [
+                            { id: "all", nome: "Selecionar todas" },
+                            ...processos,
+                          ]
+                        : []
+                    }
                     getOptionLabel={(option) => option.nome}
                     value={formData.processo.map(
                       (id) =>
@@ -805,6 +940,311 @@ function ColumnsLayouts() {
                           (formData.processo.length === 0 ||
                             formData.processo.every((val) => val === 0)) &&
                           formValidation.processo === false
+                        }
+                      />
+                    )}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={6} mb={5}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ display: "flex", alignItems: "center" }}>
+                    Riscos{" "}
+                    <Tooltip
+                      title="O preenchimento deste campo e seu cadastro rápido são vinculados aos processos selecionados."
+                      arrow
+                    >
+                      <InfoOutlinedIcon
+                        sx={{ fontSize: 16, ml: 0.5, color: "text.secondary" }}
+                      />
+                    </Tooltip>
+                    <DrawerRisco
+                      buttonSx={{
+                        marginLeft: 1.5,
+                        height: "20px",
+                        minWidth: "20px",
+                      }}
+                      processosSelecionados={processos.filter((processo) =>
+                        formData.processo.includes(processo.id),
+                      )}
+                      onRiscoCreated={handleRiskCreated}
+                    />
+                  </InputLabel>
+                  <Autocomplete
+                    noOptionsText="Nenhum risco encontrado"
+                    multiple
+                    disableCloseOnSelect
+                    options={
+                      riscos.length > 0
+                        ? formData.processo.length > 0
+                          ? [
+                              ...(riscosFiltrados.length > 0
+                                ? [
+                                    {
+                                      id: "all_vinculadas",
+                                      nome: "Selecionar todos vinculados",
+                                    },
+                                  ]
+                                : []),
+                              {
+                                id: "all_outras",
+                                nome: "Selecionar todos sem vinculação",
+                              },
+                              ...riscos,
+                            ].sort((a, b) => {
+                              const isAVinculada =
+                                a.id === "all_vinculadas" ||
+                                riscosFiltrados.some((risco) => risco.id === a.id);
+                              const isBVinculada =
+                                b.id === "all_vinculadas" ||
+                                riscosFiltrados.some((risco) => risco.id === b.id);
+
+                              if (isAVinculada && !isBVinculada) return -1;
+                              if (!isAVinculada && isBVinculada) return 1;
+                              if (a.id === "all_vinculadas") return -1;
+                              if (b.id === "all_vinculadas") return 1;
+                              if (a.id === "all_outras") return -1;
+                              if (b.id === "all_outras") return 1;
+
+                              return 0;
+                            })
+                          : [{ id: "all", nome: "Selecionar todos" }, ...riscos]
+                        : []
+                    }
+                    groupBy={
+                      formData.processo.length > 0
+                        ? (option) => {
+                            const isVinculada =
+                              option.id === "all_vinculadas" ||
+                              riscosFiltrados.some(
+                                (risco) => risco.id === option.id,
+                              );
+
+                            return isVinculada
+                              ? "Vinculados aos Processos Selecionados"
+                              : "Outros Riscos (Sem Vinculação)";
+                          }
+                        : undefined
+                    }
+                    getOptionLabel={(option) => option.nome}
+                    value={formData.risco.map(
+                      (id) => riscos.find((risco) => risco.id === id) || id,
+                    )}
+                    onChange={handleSelectAll}
+                    isOptionEqualToValue={(option, value) =>
+                      option.id === value.id
+                    }
+                    renderOption={(props, option, { selected }) => {
+                      let isChecked = selected;
+
+                      if (option.id === "all_vinculadas") {
+                        const vinculadasIds = riscosFiltrados.map(
+                          (risco) => risco.id,
+                        );
+                        isChecked =
+                          vinculadasIds.length > 0 &&
+                          vinculadasIds.every((id) =>
+                            formData.risco.includes(id),
+                          );
+                      } else if (option.id === "all_outras") {
+                        const vinculadasIds = new Set(
+                          riscosFiltrados.map((risco) => risco.id),
+                        );
+                        const outrasIds = riscos
+                          .map((risco) => risco.id)
+                          .filter((id) => !vinculadasIds.has(id));
+                        isChecked =
+                          outrasIds.length > 0 &&
+                          outrasIds.every((id) => formData.risco.includes(id));
+                      } else if (option.id === "all") {
+                        isChecked =
+                          riscos.length > 0 &&
+                          riscos.every((risco) =>
+                            formData.risco.includes(risco.id),
+                          );
+                      }
+
+                      return (
+                        <li {...props}>
+                          <Grid container alignItems="center">
+                            <Grid item>
+                              <Checkbox checked={isChecked} />
+                            </Grid>
+                            <Grid item xs>
+                              {option.nome}
+                            </Grid>
+                          </Grid>
+                        </li>
+                      );
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        error={
+                          (formData.risco.length === 0 ||
+                            formData.risco.every((val) => val === 0)) &&
+                          formValidation.risco === false
+                        }
+                      />
+                    )}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ display: "flex", alignItems: "center" }}>
+                    Departamentos afetados{" "}
+                    <Tooltip
+                      title="O preenchimento deste campo e seu cadastro rápido são vinculados aos processos selecionados."
+                      arrow
+                    >
+                      <InfoOutlinedIcon
+                        sx={{ fontSize: 16, ml: 0.5, color: "text.secondary" }}
+                      />
+                    </Tooltip>
+                    <DrawerDepartamento
+                      buttonSx={{
+                        marginLeft: 1.5,
+                        height: "20px",
+                        minWidth: "20px",
+                      }}
+                      processosSelecionados={processos.filter((processo) =>
+                        formData.processo.includes(processo.id),
+                      )}
+                      onDepartmentCreated={handleDepartmentCreated}
+                    />
+                  </InputLabel>
+                  <Autocomplete
+                    noOptionsText="Nenhum departamento encontrado"
+                    multiple
+                    disableCloseOnSelect
+                    options={
+                      departamentos.length > 0
+                        ? formData.processo.length > 0
+                          ? [
+                              ...(departamentosFiltrados.length > 0
+                                ? [
+                                    {
+                                      id: "all_vinculadas",
+                                      nome: "Selecionar todos vinculados",
+                                    },
+                                  ]
+                                : []),
+                              {
+                                id: "all_outras",
+                                nome: "Selecionar todos sem vinculação",
+                              },
+                              ...departamentos,
+                            ].sort((a, b) => {
+                              const isAVinculado =
+                                a.id === "all_vinculadas" ||
+                                departamentosFiltrados.some(
+                                  (departamento) => departamento.id === a.id,
+                                );
+                              const isBVinculado =
+                                b.id === "all_vinculadas" ||
+                                departamentosFiltrados.some(
+                                  (departamento) => departamento.id === b.id,
+                                );
+
+                              if (isAVinculado && !isBVinculado) return -1;
+                              if (!isAVinculado && isBVinculado) return 1;
+                              if (a.id === "all_vinculadas") return -1;
+                              if (b.id === "all_vinculadas") return 1;
+                              if (a.id === "all_outras") return -1;
+                              if (b.id === "all_outras") return 1;
+
+                              return 0;
+                            })
+                          : [
+                              { id: "all", nome: "Selecionar todos" },
+                              ...departamentos,
+                            ]
+                        : []
+                    }
+                    groupBy={
+                      formData.processo.length > 0
+                        ? (option) => {
+                            const isVinculado =
+                              option.id === "all_vinculadas" ||
+                              departamentosFiltrados.some(
+                                (departamento) =>
+                                  departamento.id === option.id,
+                              );
+
+                            return isVinculado
+                              ? "Vinculados aos Processos Selecionados"
+                              : "Outros Departamentos (Sem Vinculação)";
+                          }
+                        : undefined
+                    }
+                    getOptionLabel={(option) => option.nome}
+                    value={formData.departamento.map(
+                      (id) =>
+                        departamentos.find(
+                          (departamento) => departamento.id === id,
+                        ) || id,
+                    )}
+                    onChange={handleSelectAllDepartamentos}
+                    isOptionEqualToValue={(option, value) =>
+                      option.id === value.id
+                    }
+                    renderOption={(props, option, { selected }) => {
+                      let isChecked = selected;
+
+                      if (option.id === "all_vinculadas") {
+                        const vinculadasIds = departamentosFiltrados.map(
+                          (departamento) => departamento.id,
+                        );
+                        isChecked =
+                          vinculadasIds.length > 0 &&
+                          vinculadasIds.every((id) =>
+                            formData.departamento.includes(id),
+                          );
+                      } else if (option.id === "all_outras") {
+                        const vinculadasIds = new Set(
+                          departamentosFiltrados.map(
+                            (departamento) => departamento.id,
+                          ),
+                        );
+                        const outrasIds = departamentos
+                          .map((departamento) => departamento.id)
+                          .filter((id) => !vinculadasIds.has(id));
+                        isChecked =
+                          outrasIds.length > 0 &&
+                          outrasIds.every((id) =>
+                            formData.departamento.includes(id),
+                          );
+                      } else if (option.id === "all") {
+                        isChecked =
+                          departamentos.length > 0 &&
+                          departamentos.every((departamento) =>
+                            formData.departamento.includes(departamento.id),
+                          );
+                      }
+
+                      return (
+                        <li {...props}>
+                          <Grid container alignItems="center">
+                            <Grid item>
+                              <Checkbox checked={isChecked} />
+                            </Grid>
+                            <Grid item xs>
+                              {option.nome}
+                            </Grid>
+                          </Grid>
+                        </li>
+                      );
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        error={
+                          (formData.departamento.length === 0 ||
+                            formData.departamento.every((val) => val === 0)) &&
+                          formValidation.departamento === false
                         }
                       />
                     )}
@@ -932,6 +1372,54 @@ function ColumnsLayouts() {
                 autoFocus
               >
                 Adicionar mais informações
+              </Button>
+            </DialogActions>
+          </Dialog>
+          <Dialog
+            open={openProcessDialog}
+            onClose={fecharDialogoProcesso}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle
+              sx={{
+                fontWeight: 600,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              Alteração de Processos
+              <Button
+                onClick={fecharDialogoProcesso}
+                sx={{
+                  minWidth: "auto",
+                  p: 0,
+                  color: "text.primary",
+                }}
+              >
+                ×
+              </Button>
+            </DialogTitle>
+            <DialogContent dividers>
+              <DialogContentText>
+                Deseja manter os campos de riscos e departamentos selecionados?
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions sx={{ p: 2, justifyContent: "center", gap: 2 }}>
+              <Button
+                onClick={trocarProcessoLimpar}
+                color="error"
+                variant="outlined"
+              >
+                Limpar Campos
+              </Button>
+              <Button
+                onClick={trocarProcessoManter}
+                color="primary"
+                variant="contained"
+              >
+                Manter Campos
               </Button>
             </DialogActions>
           </Dialog>
