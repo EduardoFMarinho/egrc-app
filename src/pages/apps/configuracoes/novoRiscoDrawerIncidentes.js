@@ -21,18 +21,19 @@ import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
 import { useEffect } from "react";
-import { useLocation } from "react-router-dom";
 import axios from "axios";
 
-function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
+function ColumnsLayoutsDrawer({
+  buttonSx,
+  onRiscoCreated,
+  processosSelecionados = [],
+}) {
   const [open, setOpen] = useState(false);
   const { token } = useToken();
-  const location = useLocation();
-  const { dadosApi } = location.state || {};
   const [nomeRisco, setNome] = useState("");
-  const [empresas, setDepartamentosLaterais] = useState([]);
   const [codigo, setCodigo] = useState("");
   const [categorias, setCategorias] = useState([]);
+  const [processos, setProcessos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [requisicao] = useState("Criar");
   const [mensagemFeedback] = useState("cadastrado");
@@ -42,12 +43,17 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
 
   const [formData, setFormData] = useState({
     categoria: "",
+    processo: [],
   });
 
   useEffect(() => {
     fetchData(
       `${process.env.REACT_APP_API_URL}categories`,
       setCategorias
+    );
+    fetchData(
+      `${process.env.REACT_APP_API_URL}processes`,
+      setProcessos
     );
     window.scrollTo(0, 0);
   }, []);
@@ -93,16 +99,6 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
     }
   };
 
-  const tratarMudancaInputGeral = (field, value) => {
-    if (field === "categoria") {
-      // Guarde apenas o ID do item selecionado
-      setFormData({ ...formData, [field]: value ? value.id : null });
-    } else {
-      // Para outros campos
-      setFormData({ ...formData, [field]: value });
-    }
-  };
-
   useEffect(() => {
     if (open) {
       setNome("");
@@ -110,11 +106,17 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
       setFormData((prev) => ({
         ...prev,
         categoria: "",
+        processo: processosSelecionados.map((processo) => processo.id),
       }));
-      setFormValidation({ nomeRisco: true, codigo: true, categoria: true });
+      setFormValidation({
+        nomeRisco: true,
+        codigo: true,
+        categoria: true,
+        processo: true,
+      });
       setHasChanges(false);
     }
-  }, [open]);
+  }, [open, processosSelecionados]);
 
   const [formValidation, setFormValidation] = useState({
     nomeRisco: true,
@@ -155,6 +157,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
         name: nomeRisco,
         code: codigo,
         idCategory: formData.categoria?.length ? formData.categoria : null,
+        idProcesses: formData.processo.length > 0 ? formData.processo : null,
       };
     }
 
@@ -175,6 +178,26 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
 
       const data = await response.json();
 
+      if (formData.processo && formData.processo.length > 0) {
+        const putPayload = {
+          idRisk: data.data.idRisk,
+          name: nomeRisco,
+          code: codigo,
+          idCategory: formData.categoria?.length ? formData.categoria : null,
+          idProcesses: formData.processo,
+          active: true,
+        };
+
+        await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(putPayload),
+        });
+      }
+
       enqueueSnackbar(`Risco ${mensagemFeedback} com sucesso!`, {
         variant: "success",
       });
@@ -184,6 +207,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
         const novoRisco = {
           id: data.data.idRisk,
           nome: nomeRisco,
+          idProcesses: formData.processo,
         };
         onRiscoCreated(novoRisco);
       }
@@ -299,6 +323,29 @@ function ColumnsLayoutsDrawer({ buttonSx, onRiscoCreated }) {
                         }
                       />
                     )}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
+                    Processo
+                  </InputLabel>
+                  <Autocomplete
+                    multiple
+                    options={processos}
+                    getOptionLabel={(option) => option.nome || ""}
+                    value={processos.filter((processo) =>
+                      formData.processo.includes(processo.id),
+                    )}
+                    onChange={(event, newValue) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        processo: newValue.map((item) => item.id),
+                      }));
+                    }}
+                    renderInput={(params) => <TextField {...params} />}
                   />
                 </Stack>
               </Grid>
