@@ -1276,7 +1276,7 @@ function ColumnsLayouts() {
       tipoTeste: editing && isTester && started && status < 3,
       amostra: editing && isTester && started && status < 3,
       metodologia: editing && isTester && started && status < 3,
-      deficiencia: editing && isTester && status < 3,
+      deficiencia: editing && isTester && started && status < 3,
 
       // nunca liberar a edição do testador no modo de edição
       testador: false,
@@ -1405,29 +1405,7 @@ function ColumnsLayouts() {
             </Stack>
           </Grid>
 
-          <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-            <Stack spacing={1}>
-              <InputLabel>DeficiÃªncia</InputLabel>
-              <Autocomplete
-                disabled={!fieldPermissions.deficiencia}
-                options={deficiencias}
-                getOptionLabel={(option) => option?.nome || ""}
-                value={
-                  deficiencias.find(
-                    (deficiencia) => deficiencia.id === formData.deficiencia
-                  ) || null
-                }
-                onChange={(event, newValue) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    deficiencia: newValue ? newValue.id : null,
-                  }));
-                }}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderInput={(params) => <TextField {...params} />}
-              />
-            </Stack>
-          </Grid>
+          
 
           <Grid item xs={6} sx={{ paddingBottom: 5 }}>
             <Stack spacing={1}>
@@ -1683,6 +1661,34 @@ function ColumnsLayouts() {
                   />
                 </Stack>
               </Grid>
+
+              {requisicao === "Editar" && (
+            <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+              <Stack spacing={1}>
+                <InputLabel>Deficiência</InputLabel>
+                <Autocomplete
+                  disabled={!fieldPermissions.deficiencia}
+                  options={deficiencias}
+                  getOptionLabel={(option) => option?.nome || ""}
+                  value={
+                    deficiencias.find(
+                      (deficiencia) => deficiencia.id === formData.deficiencia
+                    ) || null
+                  }
+                  onChange={(event, newValue) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      deficiencia: newValue ? newValue.id : null,
+                    }));
+                  }}
+                  isOptionEqualToValue={(option, value) =>
+                    option.id === value.id
+                  }
+                  renderInput={(params) => <TextField {...params} />}
+                />
+              </Stack>
+            </Grid>
+          )}
 
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
