@@ -1632,7 +1632,7 @@ function ColumnsLayouts() {
                 </Stack>
               </Grid>
 
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+              {/* <Grid item xs={6} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
                   <InputLabel>Conclusão do teste *</InputLabel>
                   <Autocomplete
@@ -1660,7 +1660,7 @@ function ColumnsLayouts() {
                     )}
                   />
                 </Stack>
-              </Grid>
+              </Grid> */}
 
               {requisicao === "Editar" && (
             <Grid item xs={6} sx={{ paddingBottom: 5 }}>
