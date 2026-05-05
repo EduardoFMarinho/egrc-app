@@ -75,11 +75,6 @@ const ResumoUltimoTesteControle = ({ summary }) => {
       value: summary.completionDateLabel,
       accentColor: "#2563eb",
     },
-    {
-      title: "STATUS DO TESTE",
-      value: summary.statusLabel,
-      accentColor: summary.statusColor,
-    },
   ].filter((item) => item.value && item.value !== "-");
 
   if (cards.length === 0) return null;
@@ -119,8 +114,6 @@ ResumoUltimoTesteControle.propTypes = {
     completionDescription: PropTypes.string,
     conclusionColor: PropTypes.string,
     conclusionLabel: PropTypes.string,
-    statusColor: PropTypes.string,
-    statusLabel: PropTypes.string,
   }),
 };
 
