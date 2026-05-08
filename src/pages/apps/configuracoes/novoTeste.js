@@ -1605,24 +1605,24 @@ function ColumnsLayouts() {
                 <Grid item xs={12} sx={{ paddingBottom: 3 }}>
                   {activeTestPhases.length === 0 ? (
                     <Alert severity="info">
-                      Cadastre pelo menos uma fase para liberar a conclusao do
+                      Cadastre pelo menos uma fase para liberar a conclusão do
                       teste.
                     </Alert>
                   ) : pendingTestPhases.length > 0 ? (
                     <Alert severity="warning">
                       Existem {pendingTestPhases.length} fase(s) pendente(s). O
-                      teste so pode ser concluido quando todas as fases
-                      estiverem concluidas ou revisadas.
+                      teste só pode ser concluído quando todas as fases
+                      estiverem concluídas ou revisadas.
                     </Alert>
                   ) : !isTestResponsible ? (
                     <Alert severity="info">
-                      Todas as fases estao finalizadas. A conclusao do teste
-                      deve ser feita pelo responsavel designado.
+                      Todas as fases estão finalizadas. A conclusão do teste
+                      deve ser feita pelo responsável designado.
                     </Alert>
                   ) : (
                     <Alert severity="success">
-                      Todas as fases estao finalizadas. O teste ja pode ser
-                      concluido.
+                      Todas as fases estão finalizadas. O teste já pode ser
+                      concluído.
                     </Alert>
                   )}
                 </Grid>

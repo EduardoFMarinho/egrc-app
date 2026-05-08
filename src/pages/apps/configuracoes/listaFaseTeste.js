@@ -287,7 +287,7 @@ function ReactTable({
               <Tooltip
                 title={
                   disableCreate
-                    ? "Nao e possivel adicionar novas fases apos o inicio do teste."
+                    ? "Não e possível adicionar novas fases apos o inicio do teste."
                     : ""
                 }
               >
