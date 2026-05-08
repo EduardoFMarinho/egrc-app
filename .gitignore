@@ -61,3 +61,5 @@ serviceWorker.js
 
 # next.js build output
 .next
+
+.egrc-api-main/
