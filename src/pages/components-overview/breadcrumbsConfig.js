@@ -223,6 +223,10 @@ export const routeMapping = {
     editTitle: "Editar Métrica",
     parent: "/coleta/lista",
   },
+  "/coleta/editar/<<id>>": {
+    title: "Editar Métrica",
+    parent: "/coleta/lista",
+  },
 
   "/padroesFrameworks/lista": { title: "Padrões e frameworks", parent: null },
   "/padroesFrameworks/criar": {

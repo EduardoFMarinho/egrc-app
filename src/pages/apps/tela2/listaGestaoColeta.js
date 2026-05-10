@@ -1,6 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import PropTypes from "prop-types";
-import { API_COMMAND } from "../../../config";
 import { Fragment, useMemo, useState, useEffect } from "react";
 import Popover from "@mui/material/Popover";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -8,12 +7,12 @@ import { useNavigate } from "react-router";
 import CustomerModal from "../../../sections/apps/customer/CustomerModal";
 import { enqueueSnackbar } from "notistack";
 import AlertCustomerDelete from "../../../sections/apps/customer/AlertCustomerDelete";
-import { useGetPlanos } from "../../../api/planos";
+import { useGetColetas } from "../../../api/coletas";
 import { useLocation } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useRef } from "react";
 import emitter from "./eventEmitter";
-// project import
+import { API_URL } from "../../../config";
 import MainCard from "../../../components/MainCard";
 
 // material-ui
@@ -136,8 +135,10 @@ function ReactTable({ data, columns, processosTotal, isLoading }) {
   const toggleDrawer = () => setDrawerOpen(!drawerOpen);
 
   useEffect(() => {
-    const planos = [...new Set(data.map((item) => item.name))];
-    setEmpresaOptions(planos);
+    if (data) {
+      const planos = [...new Set(data.map((item) => item.name))];
+      setEmpresaOptions(planos);
+    }
   }, [data]);
 
   // Aplica os filtros selecionados
@@ -193,6 +194,7 @@ function ReactTable({ data, columns, processosTotal, isLoading }) {
 
   // Filtra os dados com base nos filtros selecionados
   const filteredData = useMemo(() => {
+    if (!data) return [];
     return data.filter((item) => {
       return selectedFilters.every((filter) => {
         if (filter.type === "Plano de ação") return filter.values.includes(item.name);
@@ -650,12 +652,12 @@ function ActionCell({ row, refreshData }) {
   };
 
   const toggleStatus = async () => {
-    const idActionPlan = row.original.idActionPlan;
+    const id = row.original.id;
     const newStatus = status === true ? "Inativo" : "Ativo";
     
     try {
-      // Buscar os dados do departamento pelo ID
-      const getResponse = await axios.get(`${process.env.REACT_APP_API_URL}action-plans/${idActionPlan}`, {
+      // Buscar os dados pelo ID
+      const getResponse = await axios.get(`${API_URL}MetricsWithCollector/${id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -667,7 +669,7 @@ function ActionCell({ row, refreshData }) {
       const dadosAtualizados = { ...dadosEndpoint, active: newStatus === "Ativo" };
   
       // Enviar os dados atualizados via PUT
-      await axios.put(`${process.env.REACT_APP_API_URL}action-plans`, dadosAtualizados, {
+      await axios.put(`${API_URL}MetricsWithCollector`, dadosAtualizados, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -675,8 +677,8 @@ function ActionCell({ row, refreshData }) {
       });
   
       // Atualizar o estado e exibir mensagem de sucesso
-      setStatus(newStatus);
-      const message = `Plano de ação ${row.original.name} ${newStatus.toLowerCase()}.`;
+      setStatus(newStatus === "Ativo");
+      const message = `Métrica ${row.original.name} ${newStatus.toLowerCase()}.`;
   
       enqueueSnackbar(message, {
         variant: "success",
@@ -699,14 +701,17 @@ function ActionCell({ row, refreshData }) {
   const handleDelete = async () => {
     try {
       const response = await fetch(
-        `${API_COMMAND}/api/Orgao/${row.original.id}`,
+        `${API_URL}MetricsWithCollector/${row.original.id}`,
         {
           method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
       if (response.ok) {
-        enqueueSnackbar(`Plano de ação ${row.original.nome} excluído.`, {
+        enqueueSnackbar(`Métrica ${row.original.name} excluída.`, {
           variant: "success",
           autoHideDuration: 3000,
           anchorOrigin: {
@@ -767,13 +772,7 @@ function ActionCell({ row, refreshData }) {
         <Stack>
           <Button
             onClick={() => {
-              const dadosApi = row.original;
-              navigation(`/coleta/criar`, {
-                state: {
-                  indoPara: "NovaColeta",
-                  dadosApi,
-                },
-              });
+              navigation(`/coleta/editar/${row.original.id}`);
               handleClose();
             }}
             color="primary"
@@ -1168,13 +1167,11 @@ const ListagemEmpresa = () => {
   const theme = useTheme();
   const navigation = useNavigate();
   const location = useLocation();
-  const { processoSelecionadoId } = location.state || {};
   const [formData, setFormData] = useState({ refreshCount: 0 });
   const {
-    acoesJudiciais: lists,
+    coletas: lists,
     isLoading,
-    refetch,
-  } = useGetPlanos(formData, processoSelecionadoId);
+  } = useGetColetas(formData);
   const processosTotal = lists ? lists.length : 0;
   const [open, setOpen] = useState(false);
   const [customerModal, setCustomerModal] = useState(false);
@@ -1226,13 +1223,7 @@ const ListagemEmpresa = () => {
             cursor: "pointer",
           }}
             onClick={() => {
-              const dadosApi = row.original;
-              navigation(`/coleta/criar`, {
-                state: {
-                  indoPara: "NovaColeta",
-                  dadosApi,
-                },
-              });
+              navigation(`/coleta/editar/${row.original.id}`);
             }}
           >
             {row.original.name}

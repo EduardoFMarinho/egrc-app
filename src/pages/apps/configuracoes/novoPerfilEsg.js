@@ -422,6 +422,13 @@ function NovoPerfilEsg() {
       if (formData.urgencia) levelListNames.push("Níveis de Urgência/Prioridade");
       if (formData.partesInteressadas) levelListNames.push("Níveis de Importância das Partes Interessadas");
 
+      let levelListIDsToRemove = [];
+      if (requisicao === "Editar" && apiData?.levelLists) {
+         levelListIDsToRemove = apiData.levelLists
+            .filter(list => !levelListNames.includes(list.levelListName) && list.active !== false)
+            .map(list => list.id);
+      }
+
       const profileCode = formData.nomePerfilCiclo.substring(0, 50).toUpperCase().replace(/\s+/g, '-');
       const payload = {
         profileCode: perfilDados?.profileCode || profileCode,
@@ -432,6 +439,10 @@ function NovoPerfilEsg() {
         stakeholderIds: formData.partesInteressadas ? formData.stakeholders.map(s => s.id) : [],
         prioritizationCycleIds: formData.cicloPriorizacao
       };
+
+      if (requisicao === "Editar" && levelListIDsToRemove.length > 0) {
+        payload.LevelListIDsToRemove = levelListIDsToRemove;
+      }
 
       let profileId = null;
 

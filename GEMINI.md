@@ -39,6 +39,8 @@ Antes de iniciar qualquer nova entidade, o agente deve produzir um **Plano dos 5
 - Nomes dos arquivos que serão criados ou modificados.
 - Endpoint da API que será consumido.
 - Campo de código de negócio utilizado na URL.
+- Prefira entender o comportamento do sistema lendo os arquivos ao invés de abrir o navegador.
+- Só utilize o navegador quando o usuário pedir ou quando for estritamente necessário para obter alguma informação.
 
 Ao concluir, gerar o **output do `npm run build`** como artefato de evidência obrigatório.
 

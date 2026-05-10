@@ -568,6 +568,10 @@ const MainRoutes = {
               path: 'criar',
               element: <NovaColeta />
             },
+            {
+              path: 'editar/:id',
+              element: <NovaColeta />
+            },
           ]
         },
         {
@@ -656,6 +660,10 @@ const MainRoutes = {
             },
             {
               path: 'criar',
+              element: <NovoPadroesFrameworks />
+            },
+            {
+              path: 'editar/:topicCode',
               element: <NovoPadroesFrameworks />
             },
           ]

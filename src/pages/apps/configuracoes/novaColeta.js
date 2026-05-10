@@ -41,12 +41,14 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { DatePicker } from "@mui/x-date-pickers";
 import { enqueueSnackbar } from "notistack";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import LoadingOverlay from "./LoadingOverlay";
+import FileUploader from "./FileUploader";
 import ptBR from "date-fns/locale/pt-BR";
-import { useLocation } from "react-router-dom";
+import axios from "axios";
 import { useToken } from "../../../api/TokenContext";
+import { API_URL } from "../../../config";
 import {
   format,
   getYear,
@@ -62,84 +64,6 @@ import {
   getDate,
 } from "date-fns";
 
-// ====================================================================================
-// DADOS MOCK PARA DEMONSTRAÇÃO (Substituir por chamadas de API reais)
-// ====================================================================================
-
-const indicadoresDisponiveis = [
-  {
-    id: 1,
-    codigo: "AMB001",
-    nome: "Consumo de Água por Funcionário",
-    tema: "Gestão de Recursos Hídricos",
-    periodicidade: "Mensal",
-    quantidadeColetas: 12,
-    unidade: "Litros/funcionário",
-    provedorMetrica: {
-      id: 2,
-      nome: "Carlos Santos",
-      cargo: "Coordenador Ambiental",
-      departamento: "Meio Ambiente",
-    },
-    // Novos campos para simulação
-    unidade_medida: { id: 6, nome: "Litros (L)" },
-    fonte_dados: { id: 1, nome: "Sistema de Medição Interno" },
-    tipo_meta: "Absoluta",
-    valor_meta: 500,
-    prazo_meta: new Date(2025, 11, 31),
-    conexao_coleta: "on-line",
-    natureza: "quantitativo",
-    tempo_de_impacto: "leading",
-    coleta_continua: false,
-  },
-];
-
-const colaboradores = [
-  {
-    id: 1,
-    nome: "Ana Silva",
-    cargo: "Analista de Sustentabilidade",
-    departamento: "Meio Ambiente",
-  },
-  {
-    id: 2,
-    nome: "Carlos Santos",
-    cargo: "Coordenador Ambiental",
-    departamento: "Meio Ambiente",
-  },
-  {
-    id: 3,
-    nome: "Maria Oliveira",
-    cargo: "Gerente de RH",
-    departamento: "Recursos Humanos",
-  },
-  {
-    id: 4,
-    nome: "João Pereira",
-    cargo: "Analista de Compliance",
-    departamento: "Compliance",
-  },
-  {
-    id: 5,
-    nome: "Fernanda Costa",
-    cargo: "Supervisora de Qualidade",
-    departamento: "Qualidade",
-  },
-];
-
-const tiposValor = [
-  { id: 1, nome: "Percentual (%)" },
-  { id: 2, nome: "Unidade" },
-  { id: 3, nome: "Moeda (R$)" },
-  { id: 4, nome: "Metros quadrados (m²)" },
-  { id: 5, nome: "Toneladas (t)" },
-  { id: 6, nome: "Litros (L)" },
-  { id: 7, nome: "Quilowatt-hora (kWh)" },
-  { id: 8, nome: "Número absoluto" },
-  { id: 9, nome: "Horas" },
-  { id: 10, nome: "Dias" },
-];
-
 const frequenciasColeta = [
   { id: 1, nome: "Diário" },
   { id: 2, nome: "Semanal" },
@@ -150,6 +74,7 @@ const frequenciasColeta = [
   { id: 7, nome: "Semestral" },
   { id: 8, nome: "Anual" },
   { id: 9, nome: "Bienal" },
+  { id: 10, nome: "Inativa" },
 ];
 
 const tiposMeta = [
@@ -158,60 +83,6 @@ const tiposMeta = [
   { id: 3, nome: "Percentual" },
   { id: 4, nome: "Qualitativa" },
   { id: 5, nome: "Neutra / Compensada" },
-];
-
-const fatoresEmissao = [
-  {
-    id: 1,
-    nome: "Fator CO2 Eletricidade",
-    valor: 0.0005,
-    unidade: "tCO2e/kWh",
-  },
-  { id: 2, nome: "Fator H2O Tratamento", valor: 0.001, unidade: "m3/L" },
-];
-
-const fontesDados = [
-  { id: 1, nome: "Sistema de Medição Interno" },
-  { id: 2, nome: "Planilha de RH" },
-  { id: 3, nome: "Relatório de Auditoria" },
-];
-
-const tiposDimensao = [
-  { id: 1, nome: "Local" },
-  { id: 2, nome: "Moeda" },
-  { id: 3, nome: "Fonte de energia" },
-];
-
-const dimensoes = {
-  local: [
-    { id: 1, nome: "SP" },
-    { id: 2, nome: "RJ" },
-  ], // Valores mock solicitados (SP, RJ) já estão presentes
-  moeda: [
-    { id: 3, nome: "R$" },
-    { id: 4, nome: "US$" },
-  ], // Valores mock solicitados (R$, US$) já estão presentes
-  "fonte de energia": [
-    { id: 5, nome: "Solar" },
-    { id: 6, nome: "Hídrica" },
-  ], // Valores mock solicitados (Solar, Hídrica) já estão presentes
-};
-
-const empresasMock = [
-  { id: 1, nome: "Empresa A" },
-  { id: 2, nome: "Empresa B" },
-];
-const processosMock = [
-  { id: 1, nome: "Processo X" },
-  { id: 2, nome: "Processo Y" },
-];
-const departamentosMock = [
-  { id: 1, nome: "RH" },
-  { id: 2, nome: "Financeiro" },
-];
-const riscosMock = [
-  { id: 1, nome: "Risco Legal" },
-  { id: 2, nome: "Risco Ambiental" },
 ];
 
 // Função de Regra de Negócio: Calcular o Período de Referência Inicial
@@ -514,13 +385,86 @@ function NovaColetaComRegras() {
   const { token } = useToken();
   const navigate = useNavigate();
   const location = useLocation();
-  const { coletaDados } = location.state || {};
+  const { id } = useParams();
+  const { coletaDados: stateColetaDados } = location.state || {};
+  const [coletaDados, setColetaDados] = useState(stateColetaDados || null);
 
   const [loading, setLoading] = useState(false);
   const [requisicao, setRequisicao] = useState("Criar");
   const [mensagemFeedback, setMensagemFeedback] = useState("cadastrada");
   const [hasChanges, setHasChanges] = useState(false);
   const [formValidation, setFormValidation] = useState({});
+
+  // Opções para os seletores
+  const [unidadesMedida, setUnidadesMedida] = useState([]);
+  const [indicadores, setIndicadores] = useState([]);
+  const [fatoresEmissaoOptions, setFatoresEmissaoOptions] = useState([]);
+  const [fontesDadosOptions, setFontesDadosOptions] = useState([]);
+  const [colaboradoresOptions, setColaboradoresOptions] = useState([]);
+  const [empresasOptions, setEmpresasOptions] = useState([]);
+  const [departamentosOptions, setDepartamentosOptions] = useState([]);
+  const [processosOptions, setProcessosOptions] = useState([]);
+  const [riscosOptions, setRiscosOptions] = useState([]);
+  const [dimensoesOptions, setDimensoesOptions] = useState([]);
+
+  // Fetch options from API
+  useEffect(() => {
+    const fetchOptions = async () => {
+      if (!token) return;
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        const endpoints = [
+          { key: 'units', url: `${API_URL}Measure/enums`, setter: (data) => setUnidadesMedida(data.units || []) },
+          { key: 'indicators', url: `${API_URL}Indicator`, setter: setIndicadores },
+          { key: 'emissionFactors', url: `${API_URL}EmissionFactorESG`, setter: setFatoresEmissaoOptions },
+          { key: 'dataSources', url: `${API_URL}DataSource`, setter: setFontesDadosOptions },
+          { key: 'collaborators', url: `${API_URL}collaborators`, setter: setColaboradoresOptions },
+          { key: 'companies', url: `${API_URL}companies`, setter: setEmpresasOptions },
+          { key: 'departments', url: `${API_URL}departments`, setter: setDepartamentosOptions },
+          { key: 'processes', url: `${API_URL}processes`, setter: setProcessosOptions },
+          { key: 'risks', url: `${API_URL}risks`, setter: setRiscosOptions },
+          { key: 'dimensions', url: `${API_URL}Dimension`, setter: setDimensoesOptions }
+        ];
+
+        await Promise.all(endpoints.map(async (ep) => {
+          try {
+            const res = await axios.get(ep.url, { headers });
+            ep.setter(res.data || []);
+          } catch (e) {
+            console.error(`Error fetching ${ep.key}:`, e);
+          }
+        }));
+      } catch (error) {
+        console.error("Error fetching form options:", error);
+      }
+    };
+    fetchOptions();
+  }, [token]);
+
+  // Fetch data if edit mode
+  useEffect(() => {
+    const fetchColetaData = async () => {
+      if (id && !coletaDados && token) {
+        try {
+          setLoading(true);
+          const res = await axios.get(`${API_URL}MetricsWithCollector/${id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data) {
+            setColetaDados(res.data);
+          } else {
+            enqueueSnackbar("Métrica não encontrada", { variant: "error" });
+          }
+        } catch (error) {
+          console.error("Erro ao buscar dados da métrica:", error);
+          enqueueSnackbar("Não foi possível carregar os dados da métrica", { variant: "error" });
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+    fetchColetaData();
+  }, [id, token, coletaDados]);
 
   // Estados para a nova funcionalidade de coleta por período (mantidos do modelo)
   const [successDialogOpen, setSuccessDialogOpen] = useState(false); // Adicionado para o modal de sucesso
@@ -622,6 +566,7 @@ function NovaColetaComRegras() {
 
       setIniciarColetaDialogOpen(false);
       setSuccessDialogOpen(false); // Fecha o modal de sucesso após iniciar
+      navigate("/coleta/lista");
     } catch (error) {
       console.error(error.message);
       enqueueSnackbar("Não foi possível iniciar a coleta.", {
@@ -634,7 +579,7 @@ function NovaColetaComRegras() {
 
   const voltarParaListagem = () => {
     setSuccessDialogOpen(false);
-    // navigate(-1); // Simulação de voltar para a listagem
+    navigate("/coleta/lista");
   };
 
 
@@ -731,7 +676,7 @@ function NovaColetaComRegras() {
     revisores: [], // Responsáveis pela revisão (vários)
     auditores: [], // Responsáveis pela auditoria (vários)
     responsavel_coleta: null, // Responsável pela criação e conclusão (apenas um)
-    anexos_modelo: [], // Para coletar arquivos
+    files: [], // Arquivos anexos
 
     // Campo de status para controle da listagem
     statusColetaIndicador: "Não Iniciado", // Valores possíveis: "Não Iniciado", "Em Andamento", "Concluído"
@@ -781,10 +726,60 @@ function NovaColetaComRegras() {
     if (coletaDados) {
       setRequisicao("Editar");
       setMensagemFeedback("editada");
-      // Aqui você carregaria os dados da coleta para edição
-      // setFormData com os dados existentes
+
+      const findItem = (list, id, idField = 'id') => {
+        if (!id) return null;
+        return list.find(item => item[idField] === id) || { [idField]: id, name: `ID: ${id}`, active: true };
+      };
+
+      const mapItems = (list, ids, idField = 'id') => {
+        if (!ids) return [];
+        return ids.map(id => findItem(list, id, idField)).filter(Boolean);
+      };
+
+      setFormData({
+        codigo_metrica: coletaDados.code || "",
+        nome_metrica: coletaDados.name || "",
+        unidade_medida: findItem(unidadesMedida, coletaDados.idMeasure),
+        indicador: findItem(indicadores, coletaDados.idIndicator),
+        fator_emissao: findItem(fatoresEmissaoOptions, coletaDados.idEmissionFactorESG),
+        fonte_dados: findItem(fontesDadosOptions, coletaDados.idDataSource),
+        descricao: coletaDados.description || "",
+        formula_calculo: coletaDados.calcForm || "",
+        provedor_metrica: coletaDados.metricProvider || "",
+        provedorResponsavel: findItem(colaboradoresOptions, coletaDados.idMetricProviderResponsible, 'idCollaborator'),
+        observacoes: coletaDados.metricProviderObservations || "",
+        natureza: coletaDados.metricNature === 1 ? "quantitativo" : "qualitativo",
+        tempo_de_impacto: coletaDados.impactTime === 1 ? "leading" : "lagging",
+        nome_meta: coletaDados.metaName || "",
+        tipo_meta: tiposMeta.find(t => t.id === coletaDados.metaType) || null,
+        valor_meta: coletaDados.metaValue || "",
+        prazo_meta: coletaDados.metaDeadline ? new Date(coletaDados.metaDeadline) : null,
+        coleta_continua: coletaDados.collectContinuousActive || false,
+        conexao_coleta: coletaDados.collectConnection === 1 ? "on-line" : "off-line",
+        coleta_tipo: coletaDados.collectDeliveryMode === 1 ? "automático" : "manual",
+        dataInicioColeta: coletaDados.collectInitDate ? new Date(coletaDados.collectInitDate) : new Date(),
+        frequenciaColeta: frequenciasColeta.find(f => f.id === coletaDados.collectFrequency) || null,
+        periodoReferenciaColetaInicial: coletaDados.collectInitialReference || "",
+        diasColeta: coletaDados.collectDaysToCreateEvent || 0,
+        diasPrazo: coletaDados.collectDaysToFinishEvent || 0,
+        instrucaoColeta: coletaDados.collectInstructions || "",
+        empresa: mapItems(empresasOptions, coletaDados.companyIds, 'idCompany'),
+        departamento: mapItems(departamentosOptions, coletaDados.departmentIds, 'idDepartment'),
+        processo: mapItems(processosOptions, coletaDados.processIds, 'idProcess'),
+        risco: mapItems(riscosOptions, coletaDados.riskIds, 'idRisk'),
+        revisores: mapItems(colaboradoresOptions, coletaDados.revisorIds, 'idCollaborator'),
+        auditores: mapItems(colaboradoresOptions, coletaDados.auditorIds, 'idCollaborator'),
+        valoresColeta: (coletaDados.valuesToBeCollected || []).map(v => ({
+          ...v,
+          idDimension: findItem(dimensoesOptions, v.idDimension)
+        })),
+        files: coletaDados.files || coletaDados.collectFilesAttached || coletaDados.collectFilesAttachedIds || [],
+        statusColetaIndicador: coletaDados.active ? "Em Andamento" : "Não Iniciado"
+      });
+      setHasChanges(false);
     }
-  }, [coletaDados]);
+  }, [coletaDados, unidadesMedida, indicadores, fatoresEmissaoOptions, fontesDadosOptions, colaboradoresOptions, empresasOptions, departamentosOptions, processosOptions, riscosOptions, dimensoesOptions]);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({
@@ -807,7 +802,7 @@ function NovaColetaComRegras() {
     if (formData.indicador) {
       const indicador = formData.indicador;
       const frequencia = frequenciasColeta.find(
-        (f) => f.nome.toLowerCase() === indicador.periodicidade.toLowerCase()
+        (f) => f.nome?.toLowerCase() === indicador.periodicidade?.toLowerCase()
       );
       const tipoColeta =
         indicador.conexao_coleta === "on-line" ? "automático" : "manual";
@@ -872,12 +867,12 @@ function NovaColetaComRegras() {
 
   // Adicionar novo valor para coleta (Mantido do modelo)
   const adicionarValorColeta = () => {
+    const novoId = formData.valoresColeta.length > 0 ? Math.max(...formData.valoresColeta.map(v => v.id)) + 1 : 1;
     const novoValor = {
-      id: Date.now(),
-      tipoDimensao: null, // Novo campo
-      nomeDimensao: null, // Novo campo
+      id: novoId,
       descricaoValor: "",
-      valor_obrigatorio: "não", // Novo campo
+      idDimension: null,
+      valor_obrigatorio: "não",
     };
 
     setFormData((prev) => ({
@@ -944,73 +939,187 @@ function NovaColetaComRegras() {
 
   // ==============================|| FUNÇÕES DE VALIDAÇÃO E SUBMISSÃO ||============================== //
 
+  const isFormValid = useMemo(() => {
+    return (
+      formData.codigo_metrica &&
+      formData.nome_metrica &&
+      formData.unidade_medida &&
+      formData.indicador &&
+      formData.provedorResponsavel &&
+      formData.empresa.length > 0 &&
+      formData.processo.length > 0 &&
+      formData.departamento.length > 0 &&
+      formData.risco.length > 0 &&
+      formData.revisores.length > 0 &&
+      formData.auditores.length > 0 &&
+      formData.frequenciaColeta &&
+      formData.valoresColeta.length > 0 &&
+      formData.dataInicioColeta
+    );
+  }, [
+    formData.codigo_metrica,
+    formData.nome_metrica,
+    formData.unidade_medida,
+    formData.indicador,
+    formData.provedorResponsavel,
+    formData.empresa,
+    formData.processo,
+    formData.departamento,
+    formData.risco,
+    formData.revisores,
+    formData.auditores,
+    formData.frequenciaColeta,
+    formData.valoresColeta,
+    formData.dataInicioColeta,
+  ]);
+
+  const canSubmit = useMemo(() => {
+    if (loading) return false;
+    if (requisicao === "Criar") return isFormValid;
+    return isFormValid && hasChanges;
+  }, [loading, requisicao, isFormValid, hasChanges]);
+
   const validateForm = () => {
     let isValid = true;
     const newValidation = {};
 
-    // Campos obrigatórios mínimos
-    if (!formData.cicloPriorizacao) {
-      newValidation.cicloPriorizacao = false;
+    if (!formData.codigo_metrica) {
+      newValidation.codigo_metrica = false;
+      isValid = false;
+    }
+    if (!formData.nome_metrica) {
+      newValidation.nome_metrica = false;
+      isValid = false;
+    }
+    if (!formData.unidade_medida) {
+      newValidation.unidade_medida = false;
       isValid = false;
     }
     if (!formData.indicador) {
       newValidation.indicador = false;
       isValid = false;
     }
-    if (!formData.instrucaoColeta) {
-      newValidation.instrucaoColeta = false;
-      isValid = false;
-    }
-    if (formData.quantidadeColetasCiclo <= 0) {
-      newValidation.quantidadeColetasCiclo = false;
-      isValid = false;
-    }
-
-    // Regra: Pelo menos um valor para coleta se a natureza for quantitativa
-    if (
-      formData.natureza === "quantitativo" &&
-      formData.valoresColeta.length === 0
-    ) {
-      enqueueSnackbar(
-        "É obrigatório definir pelo menos um 'Valor a Ser Coletado' para métricas quantitativas.",
-        { variant: "error" }
-      );
-      isValid = false;
-    }
-
-    // Regra: Validação de campos de valor da coleta
-    formData.valoresColeta.forEach((valor, index) => {
-      if (!valor.descricaoValor || !valor.tipoDimensao || !valor.nomeDimensao) {
-        newValidation[`valorColeta_${index}`] = false;
-        isValid = false;
-      }
-    });
 
     setFormValidation(newValidation);
     return isValid;
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
     if (!validateForm()) {
-      enqueueSnackbar(
-        "Preencha todos os campos obrigatórios e corrija os erros de validação.",
-        { variant: "error" }
-      );
+      enqueueSnackbar("Preencha todos os campos obrigatórios.", { variant: "error" });
       return;
     }
 
-    setLoading(true);
-    // Simulação de chamada de API
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      setLoading(true);
+
+      // --- Lógica de arquivos (containerFolder 12) ---
+      const metricsFiles = formData.files || [];
+      const newFiles = metricsFiles.filter((file) => file instanceof File);
+      const existingFiles = metricsFiles.filter((file) => !(file instanceof File));
+
+      let uploadFilesResult = { files: [] };
+      if (newFiles.length > 0) {
+        const formDataUpload = new FormData();
+        formDataUpload.append("ContainerFolder", 12);
+        formDataUpload.append(
+          "IdContainer",
+          requisicao === "Editar" ? id : ""
+        );
+        newFiles.forEach((file) => {
+          formDataUpload.append("Files", file, file.name);
+        });
+
+        const uploadResponse = await axios.post(
+          `${API_URL}files/uploads`,
+          formDataUpload,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "multipart/form-data",
+            },
+          }
+        );
+        uploadFilesResult = uploadResponse.data;
+      }
+
+      // Combina arquivos existentes com os novos enviados
+      const finalFiles = [...existingFiles, ...uploadFilesResult.files];
+      const finalFilesPayload = finalFiles.map((file) => {
+        if (typeof file === "string") return file;
+        if (file.path) return file.path;
+        return file;
+      });
+
+      const payload = {
+        code: formData.codigo_metrica || null,
+        name: formData.nome_metrica || null,
+        idMeasure: formData.unidade_medida?.id || null,
+        idIndicator: formData.indicador?.id || null,
+        idEmissionFactorESG: formData.fator_emissao?.id || null,
+        idDataSource: formData.fonte_dados?.id || null,
+        description: formData.descricao || null,
+        calcForm: formData.formula_calculo || null,
+        metricProvider: formData.provedor_metrica || null,
+        idMetricProviderResponsible: formData.provedorResponsavel?.idCollaborator || null,
+        metricProviderObservations: formData.observacoes || null,
+        metricNature: formData.natureza === "quantitativo" ? 1 : 2,
+        impactTime: formData.tempo_de_impacto === "leading" ? 1 : 2,
+        metaName: formData.nome_meta || null,
+        metaType: formData.tipo_meta?.id || 1,
+        metaValue: formData.valor_meta || null,
+        metaDeadline: formData.prazo_meta ? formData.prazo_meta.toISOString() : null,
+        collectContinuousActive: formData.coleta_continua || false,
+        collectConnection: formData.conexao_coleta === "on-line" ? 1 : 2,
+        collectDeliveryMode: formData.coleta_tipo === "automático" ? 1 : 2,
+        collectInitDate: formData.dataInicioColeta ? formData.dataInicioColeta.toISOString() : null,
+        collectFrequency: formData.frequenciaColeta?.id || 1,
+        collectInitialReference: formData.periodoReferenciaColetaInicial || null,
+        collectDaysToCreateEvent: Number(formData.diasColeta) || 0,
+        collectDaysToFinishEvent: Number(formData.diasPrazo) || 0,
+        collectInstructions: formData.instrucaoColeta || null,
+        collectFilesAttachedIds: finalFilesPayload,
+        companyIds: formData.empresa.map(i => i.idCompany || i.id),
+        departmentIds: formData.departamento.map(i => i.idDepartment || i.id),
+        processIds: formData.processo.map(i => i.idProcess || i.id),
+        riskIds: formData.risco.map(i => i.idRisk || i.id),
+        revisorIds: formData.revisores.map(i => i.idCollaborator || i.id),
+        auditorIds: formData.auditores.map(i => i.idCollaborator || i.id),
+        valuesToBeCollected: formData.valoresColeta.map(v => ({
+          idDimension: v.idDimension?.id || v.idDimension,
+          description: v.descricaoValor,
+          required: v.valor_obrigatorio === "sim"
+        }))
+      };
+
+      if (requisicao === "Criar") {
+        payload.active = true;
+        await axios.post(`${API_URL}MetricsWithCollector`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else {
+        payload.id = id;
+        payload.active = true;
+        await axios.put(`${API_URL}MetricsWithCollector`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+
+      enqueueSnackbar(`Métrica ${mensagemFeedback} com sucesso!`, { variant: "success" });
       setHasChanges(false);
-      enqueueSnackbar(
-        `Coleta ${formData.indicador.nome} ${mensagemFeedback} com sucesso!`,
-        { variant: "success" }
-      );
-      // navigate('/gestao-coletas'); // Redirecionar após sucesso
-    }, 1500);
+      
+      if (requisicao === "Criar") {
+        setSuccessDialogOpen(true);
+      } else {
+        navigate(-1);
+      }
+    } catch (error) {
+      console.error(error);
+      enqueueSnackbar(`Erro ao salvar métrica: ${error.response?.data?.message || error.message}`, { variant: "error" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ==============================|| RENDERIZAÇÃO ||============================== //
@@ -1033,14 +1142,15 @@ function NovaColetaComRegras() {
                     {/* Código da Métrica (Preenchido pelo Indicador) */}
                     <Grid item xs={12} md={3}>
                       <Stack spacing={1}>
-                        <InputLabel>Código da Métrica</InputLabel>
+                        <InputLabel>Código da Métrica *</InputLabel>
                         <TextField
                           fullWidth
                           value={formData.codigo_metrica}
                           onChange={(e) =>
                             handleInputChange("codigo_metrica", e.target.value)
                           }
-                          helperText="Máx. 10 caracteres, não pode repetir"
+                          error={!formData.codigo_metrica && formValidation.codigo_metrica === false}
+                          helperText={(!formData.codigo_metrica && formValidation.codigo_metrica === false) ? "Campo obrigatório" : "Máx. 10 caracteres, não pode repetir"}
                         />
                       </Stack>
                     </Grid>
@@ -1048,14 +1158,15 @@ function NovaColetaComRegras() {
                     {/* Nome da Métrica (Preenchido pelo Indicador) */}
                     <Grid item xs={12} md={5}>
                       <Stack spacing={1}>
-                        <InputLabel>Nome da Métrica</InputLabel>
+                        <InputLabel>Nome da Métrica *</InputLabel>
                         <TextField
                           fullWidth
                           value={formData.nome_metrica}
                           onChange={(e) =>
                             handleInputChange("nome_metrica", e.target.value)
                           }
-                          helperText="Não pode repetir"
+                          error={!formData.nome_metrica && formValidation.nome_metrica === false}
+                          helperText={(!formData.nome_metrica && formValidation.nome_metrica === false) ? "Campo obrigatório" : "Não pode repetir"}
                         />
                       </Stack>
                     </Grid>
@@ -1063,20 +1174,22 @@ function NovaColetaComRegras() {
                     {/* Unidade de Medida (Preenchido pelo Indicador) */}
                     <Grid item xs={12} md={4}>
                       <Stack spacing={1}>
-                        <InputLabel>Unidade de Medida</InputLabel>
+                        <InputLabel>Unidade de Medida *</InputLabel>
                         <Autocomplete
-                          options={tiposValor}
-                          getOptionLabel={(option) => option.nome}
+                          options={unidadesMedida.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.name || option.nome || ""}
                           onChange={(event, newValue) =>
                             handleInputChange("unidade_medida", newValue)
                           }
-                          value={formData.unidade_medida}
+                          value={unidadesMedida.find(u => u.id === formData.unidade_medida?.id) || formData.unidade_medida}
                           renderInput={(params) => (
                             <TextField
                               {...params}
+                              error={!formData.unidade_medida && formValidation.unidade_medida === false}
                               placeholder="Unidade de medida"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => option?.id === value?.id}
                         />
                       </Stack>
                     </Grid>
@@ -1103,11 +1216,14 @@ function NovaColetaComRegras() {
                       <Stack spacing={1}>
                         <InputLabel>Indicador *</InputLabel>
                         <Autocomplete
-                          options={indicadoresDisponiveis}
-                          getOptionLabel={(option) =>
-                            `${option.codigo} - ${option.nome}`
-                          }
-                          value={formData.indicador}
+                          options={indicadores.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const code = option.indicatorCode || option.codigo || "";
+                            const name = option.indicatorName || option.nome || "";
+                            if (code && name) return `${code} - ${name}`;
+                            return code || name || "";
+                          }}
+                          value={indicadores.find(i => i.id === formData.indicador?.id) || formData.indicador}
                           onChange={(event, newValue) =>
                             handleInputChange("indicador", newValue)
                           }
@@ -1122,24 +1238,7 @@ function NovaColetaComRegras() {
                               helperText="Apenas um indicador por ciclo"
                             />
                           )}
-                          renderOption={(props, option) => (
-                            <Box component="li" {...props}>
-                              <Box>
-                                <Typography variant="body1">
-                                  <strong>{option.codigo}</strong> -{" "}
-                                  {option.nome}
-                                </Typography>
-                                <Typography
-                                  variant="caption"
-                                  color="textSecondary"
-                                >
-                                  Tema: {option.tema} | Periodicidade:{" "}
-                                  {option.periodicidade} | Unidade:{" "}
-                                  {option.unidade}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          )}
+                          isOptionEqualToValue={(option, value) => option?.id === value?.id}
                         />
                       </Stack>
                     </Grid>
@@ -1149,11 +1248,14 @@ function NovaColetaComRegras() {
                       <Stack spacing={1}>
                         <InputLabel>Fator de Emissão (Conversão)</InputLabel>
                         <Autocomplete
-                          options={fatoresEmissao}
-                          getOptionLabel={(option) =>
-                            `${option.nome} (${option.unidade})`
-                          }
-                          value={formData.fator_emissao}
+                          options={fatoresEmissaoOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const name = option.emissionFactorESGName || option.emissionFactorName || option.name || "";
+                            const unit = option.originUnitName || option.unit || "";
+                            if (name && unit) return `${name} (${unit})`;
+                            return name || unit || "";
+                          }}
+                          value={fatoresEmissaoOptions.find(f => f.id === formData.fator_emissao?.id) || formData.fator_emissao}
                           onChange={(event, newValue) =>
                             handleInputChange("fator_emissao", newValue)
                           }
@@ -1163,6 +1265,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione o fator de conversão"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => option?.id === value?.id}
                         />
                       </Stack>
                     </Grid>
@@ -1172,9 +1275,9 @@ function NovaColetaComRegras() {
                       <Stack spacing={1}>
                         <InputLabel>Fonte de Dados</InputLabel>
                         <Autocomplete
-                          options={fontesDados}
-                          getOptionLabel={(option) => option.nome}
-                          value={formData.fonte_dados}
+                          options={fontesDadosOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.dataSourceName || option.nome || ""}
+                          value={fontesDadosOptions.find(f => f.id === formData.fonte_dados?.id) || formData.fonte_dados}
                           onChange={(event, newValue) =>
                             handleInputChange("fonte_dados", newValue)
                           }
@@ -1184,6 +1287,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione a fonte de dados"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => option?.id === value?.id}
                         />
                       </Stack>
                     </Grid>
@@ -1212,11 +1316,13 @@ function NovaColetaComRegras() {
                           Provedor da Métrica (Dono do Dado)
                         </InputLabel>
                         <Autocomplete
-                          options={colaboradores}
-                          getOptionLabel={(option) =>
-                            `${option.nome} (${option.departamento})`
-                          }
-                          value={formData.provedor_metrica}
+                          options={colaboradoresOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const name = option.name || "";
+                            const dept = option.departmentName || option.departamento || "";
+                            return dept ? `${name} (${dept})` : name;
+                          }}
+                          value={colaboradoresOptions.find(c => c.idCollaborator === formData.provedor_metrica?.idCollaborator) || formData.provedor_metrica}
                           disabled
                           renderInput={(params) => (
                             <TextField
@@ -1224,6 +1330,7 @@ function NovaColetaComRegras() {
                               placeholder="Provedor dos dados do indicador"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => (option?.idCollaborator || option?.id) === (value?.idCollaborator || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -1235,13 +1342,15 @@ function NovaColetaComRegras() {
                           Responsável pela Gestão da Métrica
                         </InputLabel>
                         <Autocomplete
-                          options={colaboradores}
-                          getOptionLabel={(option) =>
-                            `${option.nome} (${option.departamento})`
-                          }
-                          value={formData.responsavel_metrica}
+                          options={colaboradoresOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const name = option.name || "";
+                            const dept = option.departmentName || option.departamento || "";
+                            return dept ? `${name} (${dept})` : name;
+                          }}
+                          value={colaboradoresOptions.find(c => c.idCollaborator === formData.provedorResponsavel?.idCollaborator) || formData.provedorResponsavel}
                           onChange={(event, newValue) =>
-                            handleInputChange("responsavel_metrica", newValue)
+                            handleInputChange("provedorResponsavel", newValue)
                           }
                           renderInput={(params) => (
                             <TextField
@@ -1249,6 +1358,7 @@ function NovaColetaComRegras() {
                               placeholder="Responsável pela gestão"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => option?.idCollaborator === value?.idCollaborator}
                         />
                       </Stack>
                     </Grid>
@@ -1351,16 +1461,16 @@ function NovaColetaComRegras() {
                       <Stack spacing={1}>
                         <InputLabel>Tipo de Meta</InputLabel>
                         <Autocomplete
-                          options={tiposMeta}
-                          getOptionLabel={(option) => option.nome}
+                          options={tiposMeta.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.nome || option.name || ""}
                           value={formData.tipo_meta}
                           onChange={(event, newValue) => {
                             handleInputChange("tipo_meta", newValue);
                             // Regra: Se for Qualitativa ou Neutra, o valor deve ser tratado como texto
                             if (
                               newValue &&
-                              (newValue.nome.includes("Qualitativa") ||
-                                newValue.nome.includes("Neutra"))
+                              (newValue.nome?.includes("Qualitativa") ||
+                                newValue.nome?.includes("Neutra"))
                             ) {
                               handleInputChange("valor_meta", ""); // Limpa o valor anterior
                             }
@@ -1460,8 +1570,8 @@ function NovaColetaComRegras() {
                         <InputLabel>Empresas</InputLabel>
                         <Autocomplete
                           multiple
-                          options={empresasMock}
-                          getOptionLabel={(option) => option.nome}
+                          options={empresasOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.companyName || option.name || option.nome || ""}
                           value={formData.empresa}
                           onChange={handleMultiSelectChange("empresa")}
                           renderInput={(params) => (
@@ -1470,6 +1580,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione as empresas"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => (option?.idCompany || option?.id) === (value?.idCompany || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -1480,8 +1591,8 @@ function NovaColetaComRegras() {
                         <InputLabel>Processos</InputLabel>
                         <Autocomplete
                           multiple
-                          options={processosMock}
-                          getOptionLabel={(option) => option.nome}
+                          options={processosOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.processName || option.name || option.nome || ""}
                           value={formData.processo}
                           onChange={handleMultiSelectChange("processo")}
                           renderInput={(params) => (
@@ -1490,6 +1601,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione os processos"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => (option?.idProcess || option?.id) === (value?.idProcess || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -1500,8 +1612,8 @@ function NovaColetaComRegras() {
                         <InputLabel>Departamentos</InputLabel>
                         <Autocomplete
                           multiple
-                          options={departamentosMock}
-                          getOptionLabel={(option) => option.nome}
+                          options={departamentosOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.departmentName || option.name || option.nome || ""}
                           value={formData.departamento}
                           onChange={handleMultiSelectChange("departamento")}
                           renderInput={(params) => (
@@ -1510,6 +1622,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione os departamentos"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => (option?.idDepartment || option?.id) === (value?.idDepartment || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -1520,8 +1633,8 @@ function NovaColetaComRegras() {
                         <InputLabel>Riscos</InputLabel>
                         <Autocomplete
                           multiple
-                          options={riscosMock}
-                          getOptionLabel={(option) => option.nome}
+                          options={riscosOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => option.riskName || option.name || option.nome || ""}
                           value={formData.risco}
                           onChange={handleMultiSelectChange("risco")}
                           renderInput={(params) => (
@@ -1530,6 +1643,7 @@ function NovaColetaComRegras() {
                               placeholder="Selecione os riscos"
                             />
                           )}
+                          isOptionEqualToValue={(option, value) => (option?.idRisk || option?.id) === (value?.idRisk || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -1658,7 +1772,7 @@ function NovaColetaComRegras() {
                           options={frequenciasColeta}
                           getOptionLabel={(option) => option.nome}
                           isOptionEqualToValue={(option, value) =>
-                            option.id === value.id
+                            option?.id === value?.id
                           }
                           value={formData.frequenciaColeta}
                           onChange={(event, newValue) =>
@@ -1766,32 +1880,14 @@ function NovaColetaComRegras() {
                     {/* Anexos Modelo */}
                     <Grid item xs={12}>
                       <Stack spacing={1}>
-                        <InputLabel>
-                          Anexos Modelo (Para Coletar Arquivos)
-                        </InputLabel>
-                        <Typography variant="body2" color="textSecondary">
-                          Este campo simula a inclusão de modelos de arquivos
-                          que o provedor da coleta deve preencher.
-                        </Typography>
-                        {/* Implementação de upload de arquivos simulada */}
-                        <Button variant="outlined" startIcon={<AddIcon />}>
-                          Adicionar Anexo Modelo
-                        </Button>
-                        <List dense>
-                          {formData.anexos_modelo.map((anexo, index) => (
-                            <ListItem key={index}>
-                              <ListItemText
-                                primary={anexo.nome}
-                                secondary={anexo.tamanho}
-                              />
-                              <ListItemSecondaryAction>
-                                <IconButton edge="end" aria-label="delete">
-                                  <DeleteIcon />
-                                </IconButton>
-                              </ListItemSecondaryAction>
-                            </ListItem>
-                          ))}
-                        </List>
+                        <InputLabel>Anexos Modelo</InputLabel>
+                        <FileUploader
+                          containerFolder={12}
+                          initialFiles={formData.files}
+                          onFilesChange={(files) =>
+                            setFormData((prev) => ({ ...prev, files }))
+                          }
+                        />
                       </Stack>
                     </Grid>
                   </Grid>
@@ -1885,7 +1981,7 @@ function NovaColetaComRegras() {
                             >
                               <Grid container spacing={2} alignItems="center">
                                 {/* Ícone e Descrição do Valor */}
-                                <Grid item xs={12} md={3.5}>
+                                <Grid item xs={12} md={4}>
                                   <Stack
                                     direction="row"
                                     spacing={1.5}
@@ -1922,24 +2018,19 @@ function NovaColetaComRegras() {
                                   </Stack>
                                 </Grid>
 
-                                {/* Tipo da Dimensão */}
-                                <Grid item xs={12} sm={6} md={3}>
+                                {/* Tipo Dimensão */}
+                                <Grid item xs={12} md={4}>
                                   <Autocomplete
-                                    options={tiposDimensao}
+                                    options={dimensoesOptions.filter(item => item.active !== false)}
                                     getOptionLabel={(option) =>
-                                      option?.nome ?? ""
+                                      option?.dimensionName ?? option?.name ?? option?.nome ?? ""
                                     }
-                                    value={valor.tipoDimensao}
+                                    value={dimensoesOptions.find(d => d.id === valor.idDimension?.id) || valor.idDimension}
                                     onChange={(_, newValue) => {
                                       atualizarValorColeta(
                                         valor.id,
-                                        "tipoDimensao",
+                                        "idDimension",
                                         newValue
-                                      );
-                                      atualizarValorColeta(
-                                        valor.id,
-                                        "nomeDimensao",
-                                        null
                                       );
                                     }}
                                     size="small"
@@ -1947,61 +2038,15 @@ function NovaColetaComRegras() {
                                       <TextField
                                         {...params}
                                         label="Tipo Dimensão *"
-                                        error={!!hasErrorTipo}
-                                        helperText={
-                                          hasErrorTipo
-                                            ? "Campo obrigatório"
-                                            : ""
-                                        }
                                         sx={fieldSx}
                                       />
                                     )}
-                                  />
-                                </Grid>
-
-                                {/* Nome da Dimensão */}
-                                <Grid item xs={12} sm={6} md={3}>
-                                  <Autocomplete
-                                    options={
-                                      valor.tipoDimensao
-                                        ? dimensoes[
-                                            valor.tipoDimensao.nome
-                                              .toLowerCase()
-                                              .replace(/ /g, "_")
-                                          ] || []
-                                        : []
-                                    }
-                                    getOptionLabel={(option) =>
-                                      option?.nome ?? ""
-                                    }
-                                    value={valor.nomeDimensao}
-                                    onChange={(_, newValue) =>
-                                      atualizarValorColeta(
-                                        valor.id,
-                                        "nomeDimensao",
-                                        newValue
-                                      )
-                                    }
-                                    size="small"
-                                    disabled={!valor.tipoDimensao}
-                                    renderInput={(params) => (
-                                      <TextField
-                                        {...params}
-                                        label="Nome Dimensão *"
-                                        error={!!hasErrorNome}
-                                        helperText={
-                                          hasErrorNome
-                                            ? "Campo obrigatório"
-                                            : ""
-                                        }
-                                        sx={fieldSx}
-                                      />
-                                    )}
+                                    isOptionEqualToValue={(option, value) => option?.id === value?.id}
                                   />
                                 </Grid>
 
                                 {/* Valor Obrigatório e Ações */}
-                                <Grid item xs={12} md={1} ml={9}>
+                                <Grid item xs={12} md={4}>
                                   <Stack
                                     direction="row"
                                     spacing={1}
@@ -2073,10 +2118,13 @@ function NovaColetaComRegras() {
                         <InputLabel>Revisor(es)</InputLabel>
                         <Autocomplete
                           multiple
-                          options={colaboradores}
-                          getOptionLabel={(option) =>
-                            `${option.nome} (${option.departamento})`
-                          }
+                          options={colaboradoresOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const name = option.name || "";
+                            const dept = option.departmentName || option.departamento || "";
+                            if (name && dept) return `${name} (${dept})`;
+                            return name || dept || "";
+                          }}
                           value={formData.revisores}
                           onChange={handleMultiSelectChange("revisores")}
                           renderInput={(params) => (
@@ -2086,6 +2134,7 @@ function NovaColetaComRegras() {
                             />
                           )}
                           helperText="O revisor não pode alterar campos, apenas comentar em caso de recusa."
+                          isOptionEqualToValue={(option, value) => (option?.idCollaborator || option?.id) === (value?.idCollaborator || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -2096,10 +2145,13 @@ function NovaColetaComRegras() {
                         <InputLabel>Auditor(es)</InputLabel>
                         <Autocomplete
                           multiple
-                          options={colaboradores}
-                          getOptionLabel={(option) =>
-                            `${option.nome} (${option.departamento})`
-                          }
+                          options={colaboradoresOptions.filter(item => item.active !== false)}
+                          getOptionLabel={(option) => {
+                            const name = option.name || "";
+                            const dept = option.departmentName || option.departamento || "";
+                            if (name && dept) return `${name} (${dept})`;
+                            return name || dept || "";
+                          }}
                           value={formData.auditores}
                           onChange={handleMultiSelectChange("auditores")}
                           renderInput={(params) => (
@@ -2109,6 +2161,7 @@ function NovaColetaComRegras() {
                             />
                           )}
                           helperText="O auditor não pode alterar campos, apenas comentar em caso de recusa."
+                          isOptionEqualToValue={(option, value) => (option?.idCollaborator || option?.id) === (value?.idCollaborator || value?.id)}
                         />
                       </Stack>
                     </Grid>
@@ -2266,7 +2319,7 @@ function NovaColetaComRegras() {
               >
                 <Button
                   variant="outlined"
-                  onClick={() => navigate("/gestao-coletas")} // Simulação de navegação de volta
+                  onClick={() => navigate("/coleta/lista")}
                   size="large"
                 >
                   Cancelar
@@ -2281,6 +2334,7 @@ function NovaColetaComRegras() {
                         color="success"
                         onClick={() => setIniciarColetaDialogOpen(true)}
                         size="large"
+                        disabled={!canSubmit}
                       >
                         Iniciar Coleta
                       </Button>
@@ -2290,7 +2344,7 @@ function NovaColetaComRegras() {
                     type="submit"
                     variant="contained"
                     size="large"
-                    disabled={loading}
+                    disabled={!canSubmit}
                   >
                     {requisicao === "Criar"
                       ? "Cadastrar Coleta"
@@ -2621,10 +2675,12 @@ function NovaColetaComRegras() {
                       <InputLabel>Revisor(es) do Período</InputLabel>
                       <Autocomplete
                         multiple
-                        options={colaboradores}
-                        getOptionLabel={(option) =>
-                          `${option.nome} (${option.departamento})`
-                        }
+                        options={colaboradoresOptions.filter(item => item.active !== false)}
+                        getOptionLabel={(option) => {
+                          const name = option.name || "";
+                          const dept = option.departmentName || option.departamento || "";
+                          return dept ? `${name} (${dept})` : name;
+                        }}
                         value={dadosColetaPeriodo.revisores}
                         onChange={(_, newValue) =>
                           setDadosColetaPeriodo((prev) => ({
@@ -2639,6 +2695,7 @@ function NovaColetaComRegras() {
                           />
                         )}
                         disableCloseOnSelect
+                        isOptionEqualToValue={(option, value) => (option?.idCollaborator || option?.id) === (value?.idCollaborator || value?.id)}
                       />
                     </Stack>
                   </Grid>
@@ -2649,10 +2706,12 @@ function NovaColetaComRegras() {
                       <InputLabel>Auditor(es) do Período</InputLabel>
                       <Autocomplete
                         multiple
-                        options={colaboradores}
-                        getOptionLabel={(option) =>
-                          `${option.nome} (${option.departamento})`
-                        }
+                        options={colaboradoresOptions.filter(item => item.active !== false)}
+                        getOptionLabel={(option) => {
+                          const name = option.name || "";
+                          const dept = option.departmentName || option.departamento || "";
+                          return dept ? `${name} (${dept})` : name;
+                        }}
                         value={dadosColetaPeriodo.auditores}
                         onChange={(_, newValue) =>
                           setDadosColetaPeriodo((prev) => ({
@@ -2667,6 +2726,7 @@ function NovaColetaComRegras() {
                           />
                         )}
                         disableCloseOnSelect
+                        isOptionEqualToValue={(option, value) => (option?.idCollaborator || option?.id) === (value?.idCollaborator || value?.id)}
                       />
                     </Stack>
                   </Grid>

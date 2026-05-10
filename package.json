@@ -1,6 +1,6 @@
 {
   "name": "egrc-app",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "private": true,
   "dependencies": {
     "@ant-design/colors": "^7.0.0",
