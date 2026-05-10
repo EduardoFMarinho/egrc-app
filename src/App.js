@@ -14,6 +14,7 @@ import { JWTProvider as AuthProvider } from './contexts/JWTContext';
 // Importe o PartesAdversasProvider
 import { PartesAdversasProvider } from './pages/apps/tela2/PartesAdversasContext';
 import { TokenProvider } from "./api/TokenContext";
+import VersionDisplay from './components/VersionDisplay';
 
 // ==============================|| APP - THEME, ROUTER, LOCAL ||============================== //
 
@@ -27,6 +28,7 @@ const App = () => (
             <PartesAdversasProvider>
               <Notistack>
                 <RouterProvider router={router} />
+                <VersionDisplay />
                 <Snackbar />
               </Notistack>
             </PartesAdversasProvider>

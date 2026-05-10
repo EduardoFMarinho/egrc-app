@@ -284,6 +284,65 @@ const steps = [
   { label: 'Análises e Gráficos', icon: <TrendingUpIcon /> },
 ];
 
+const recalcTema = (newTema) => {
+  // Helper to get numeric value safely
+  const getVal = (ind, fallback) => {
+    if (ind && typeof ind === 'object' && typeof ind.value === 'number') return ind.value;
+    const num = Number(fallback);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Função auxiliar para calcular média ignorando zeros
+  const calcAverage = (values) => {
+    const validValues = values.filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
+    if (validValues.length === 0) return 0;
+    const sum = validValues.reduce((a, b) => a + b, 0);
+    return sum / validValues.length;
+  };
+
+  // Sig. Impacto = média dos indicadores de impacto preenchidos
+  const pImp = getVal(newTema.probabilidadeIndicator, newTema.probabilidade);
+  const iImp = getVal(newTema.intensidadeIndicator, newTema.intensidade);
+  const aImp = getVal(newTema.abrangenciaIndicator, newTema.abrangencia);
+  const uImp = getVal(newTema.urgenciaIndicator, newTema.urgencia);
+  newTema.significanciaImpacto = calcAverage([pImp, iImp, aImp, uImp]);
+
+  // Sig. Financeira = média dos indicadores financeiros preenchidos
+  const pFin = getVal(newTema.probabilidadeFinIndicator, newTema.probabilidadeFin);
+  const iFin = getVal(newTema.intensidadeFinIndicator, newTema.intensidadeFin);
+  const aFin = getVal(newTema.abrangenciaFinIndicator, newTema.abrangenciaFin);
+  const uFin = getVal(newTema.urgenciaFinIndicator, newTema.urgenciaFin);
+  newTema.significanciaFinanceira = calcAverage([pFin, iFin, aFin, uFin]);
+
+  // Import. PI = média dos votos de stakeholders
+  const stVotes = newTema.stakeholderVotes || {};
+  const stValues = Object.values(stVotes)
+    .map(v => (v && typeof v === 'object' ? v.value : Number(v)))
+    .filter(val => !isNaN(val) && val > 0);
+    
+  if (stValues.length > 0) {
+    const total = stValues.reduce((sum, v) => sum + v, 0);
+    newTema.importanciaPI = total / stValues.length;
+  } else {
+    newTema.importanciaPI = getVal(newTema.importanciaPIIndicator, newTema.importanciaPI);
+  }
+
+  // Priorização = média das significâncias que possuem valor > 0
+  const sigs = [
+    newTema.significanciaImpacto,
+    newTema.significanciaFinanceira,
+    newTema.importanciaPI
+  ].filter(s => s > 0);
+
+  if (sigs.length > 0) {
+    newTema.priorizacao = sigs.reduce((a, b) => a + b, 0) / sigs.length;
+  } else {
+    newTema.priorizacao = 0;
+  }
+
+  return newTema;
+};
+
 const IndicatorMenuCell = ({ tema, fieldName, listName, perfilEsgDetalhes, formData, handleInputChange, onSelect }) => {
   const [anchorEl, setAnchorEl] = React.useState(null);
   const open = Boolean(anchorEl);
@@ -292,7 +351,16 @@ const IndicatorMenuCell = ({ tema, fieldName, listName, perfilEsgDetalhes, formD
   const indicators = levelList?.levelIndicators?.filter(ind => ind.active !== false) || [];
 
   const vote = tema.esgProfileVotesLists?.find(v => v.levelListId === levelList?.id);
-  const currentIndicatorId = tema[`${fieldName}Indicator`]?.id || tema[`${fieldName}Indicator`] || vote?.levelIndicatorId;
+  
+  // Custom logic for stakeholders
+  let currentIndicatorId;
+  if (fieldName.startsWith('stakeholder_')) {
+    const stId = fieldName.replace('stakeholder_', '');
+    currentIndicatorId = tema.stakeholderVotes?.[stId]?.id || tema.stakeholderVotes?.[stId];
+  } else {
+    currentIndicatorId = tema[`${fieldName}Indicator`]?.id || tema[`${fieldName}Indicator`] || vote?.levelIndicatorId;
+  }
+  
   const currentIndicator = indicators.find(ind => ind.id === currentIndicatorId);
 
   const handleClick = (event) => {
@@ -316,20 +384,7 @@ const IndicatorMenuCell = ({ tema, fieldName, listName, perfilEsgDetalhes, formD
            [`${fieldName}Indicator`]: indicator,
            [fieldName]: indicator.value 
          };
-         
-         const p = newTema.probabilidadeIndicator?.value || newTema.probabilidade || 0;
-         const i = newTema.intensidadeIndicator?.value || newTema.intensidade || 0;
-         const a = newTema.abrangenciaIndicator?.value || newTema.abrangencia || 0;
-         const u = newTema.urgenciaIndicator?.value || newTema.urgencia || 0;
-         const pi = newTema.importanciaPIIndicator?.value || newTema.importanciaPI || 0;
-         
-         newTema.significanciaImpacto = (p + i + a + u) / 4;
-         newTema.importanciaPI = pi;
-         
-         const f = parseFloat(newTema.significanciaFinanceira) || 0;
-         newTema.priorizacao = (newTema.significanciaImpacto + f + newTema.importanciaPI) / 3;
-         
-         return newTema;
+         return recalcTema(newTema);
       }
       return t;
     });
@@ -394,6 +449,7 @@ function NovoCicloPriorizacao() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedTema, setSelectedTema] = useState(null);
+  const [avaliacaoTab, setAvaliacaoTab] = useState(0);
   
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
@@ -420,20 +476,25 @@ function NovoCicloPriorizacao() {
   const [perfisEsgOptions, setPerfisEsgOptions] = useState([]);
   const [perfilEsgDetalhes, setPerfilEsgDetalhes] = useState(null);
   const [cicloAnteriorDetalhes, setCicloAnteriorDetalhes] = useState(null);
+  const [stakeholdersOptions, setStakeholdersOptions] = useState([]);
+  const [esgImpactsOptions, setEsgImpactsOptions] = useState([]);
 
   useEffect(() => {
     let unmounted = false;
     const fetchOptions = async () => {
       if (!token) return;
       try {
-        const [temasRes, colabRes, ciclosRes, perfisRes] = await Promise.all([
+        const [temasRes, colabRes, ciclosRes, perfisRes, stakeholdersRes, impactsRes] = await Promise.all([
           axios.get(`${API_URL}Theme`, { headers: { Authorization: `Bearer ${token}` } }),
           axios.get(`${API_URL}collaborators`, { headers: { Authorization: `Bearer ${token}` } }),
           axios.get(`${API_URL}PrioritizationCycle`, { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get(`${API_URL}ProfileESG`, { headers: { Authorization: `Bearer ${token}` } })
+          axios.get(`${API_URL}ProfileESG`, { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${API_URL}Stakeholder`, { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get(`${API_URL}ESGImpact`, { headers: { Authorization: `Bearer ${token}` } })
         ]);
         if (unmounted) return;
         setTemasOptions(temasRes.data || []);
+        setEsgImpactsOptions(impactsRes.data || []);
         
         const ativosColab = (colabRes.data || []).map(c => ({
           ...c, 
@@ -449,6 +510,13 @@ function NovoCicloPriorizacao() {
         const perfisData = Array.isArray(perfisRes.data) ? perfisRes.data : (perfisRes.data?.data || []);
         setPerfisEsgOptions(perfisData.map(p => ({
           ...p, nome: p.profileESGName || p.nome || p.id
+        })));
+
+        const rawStakeholders = Array.isArray(stakeholdersRes.data) ? stakeholdersRes.data : (stakeholdersRes.data?.data || []);
+        const stakeholdersData = rawStakeholders.filter(s => s.active === true);
+        setStakeholdersOptions(stakeholdersData.map(s => ({
+          ...s,
+          nome: s.name || s.stakeholderName || s.nome || s.id
         })));
       } catch (err) {
         console.error('Erro ao buscar dados relacionados', err);
@@ -527,29 +595,69 @@ function NovoCicloPriorizacao() {
   }, [id, token]);
 
   useEffect(() => {
-    if (temasOptions.length > 0 && formData.temas.length > 0) {
-      const needsHydration = formData.temas.some(t => t.tema && t.tema.startsWith('Tema ID '));
+    let unmounted = false;
+    if (temasOptions.length > 0 && esgImpactsOptions.length > 0 && formData.temas.length > 0) {
+      const needsHydration = formData.temas.some(t => 
+        (t.tema && t.tema.startsWith('Tema ID ')) || !t._impactsHydrated
+      );
+      
       if (needsHydration) {
-        const hydratedTemas = formData.temas.map(t => {
-          if (t.tema && t.tema.startsWith('Tema ID ')) {
-            const realTema = temasOptions.find(opt => opt.id === t.id || String(opt.id) === String(t.codigo));
-            if (realTema) {
-              const axisMap = { 1: "Ambiental", 2: "Social", 3: "Governança" };
-              const eixoStr = axisMap[realTema.esgAxis] || "Ambiental";
-              return {
-                ...t,
-                tema: realTema.themeName || realTema.nomeTema || realTema.tema || realTema.id,
-                eixo: eixoStr,
-                codigo: realTema.themeCode || (typeof realTema.id === 'string' ? realTema.id.substring(0, 8) : realTema.id)
-              };
+        const hydrateThemes = async () => {
+          const hydratedTemas = await Promise.all(formData.temas.map(async t => {
+            if ((t.tema && t.tema.startsWith('Tema ID ')) || !t._impactsHydrated) {
+              const realTema = temasOptions.find(opt => opt.id === t.id || String(opt.id) === String(t.codigo));
+              if (realTema) {
+                const code = realTema.themeCode || (typeof realTema.id === 'string' ? realTema.id.substring(0, 8) : realTema.id);
+                
+                let themeDetails = null;
+                try {
+                  const res = await axios.get(`${API_URL}Theme/Code/${code}`, { headers: { Authorization: `Bearer ${token}` } });
+                  themeDetails = res.data;
+                } catch (e) {
+                  console.error('Erro ao buscar detalhes do tema', e);
+                }
+
+                const sigImpactIds = (themeDetails?.themeSignificanceImpacts || []).map(i => i.id || i.esgImpactId);
+                const finImpactIds = (themeDetails?.themeFinancialSignificances || []).map(i => i.id || i.esgImpactId);
+
+                const themeImpacts = themeDetails?.themeESGImpacts || [];
+                const impactsList = themeImpacts.map(ti => {
+                  const baseImpact = esgImpactsOptions.find(ei => ei.id === ti.esgImpactId);
+                  return baseImpact ? { ...ti, nature: baseImpact.impactNature, type: baseImpact.impactType, nome: baseImpact.impactESGName || baseImpact.name } : null;
+                }).filter(Boolean);
+
+                const impactosPositivos = impactsList.filter(i => i.nature === 1);
+                const impactosNegativos = impactsList.filter(i => i.nature === 2);
+
+                const axisMap = { 1: "Ambiental", 2: "Social", 3: "Governança" };
+                const eixoStr = axisMap[realTema.esgAxis] || "Ambiental";
+
+                return {
+                  ...t,
+                  tema: realTema.themeName || realTema.nomeTema || realTema.tema || realTema.id,
+                  eixo: eixoStr,
+                  codigo: code,
+                  impactosPositivos,
+                  impactosNegativos,
+                  sigImpactIds,
+                  finImpactIds,
+                  _impactsHydrated: true
+                };
+              }
             }
+            return t;
+          }));
+
+          if (!unmounted) {
+            setFormData(prev => ({ ...prev, temas: hydratedTemas }));
           }
-          return t;
-        });
-        setFormData(prev => ({ ...prev, temas: hydratedTemas }));
+        };
+
+        hydrateThemes();
       }
     }
-  }, [temasOptions, formData.temas]);
+    return () => { unmounted = true; };
+  }, [temasOptions, esgImpactsOptions, formData.temas, token]);
 
   useEffect(() => {
     let unmounted = false;
@@ -563,7 +671,81 @@ function NovoCicloPriorizacao() {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!unmounted) {
-          setPerfilEsgDetalhes(res.data);
+          const perfilData = res.data?.data || res.data;
+          setPerfilEsgDetalhes(perfilData);
+          
+          // Hydrate themes with indicator objects now that we have the profile details
+          setFormData(prev => ({
+            ...prev,
+            temas: prev.temas.map(t => {
+              const newTema = { ...t };
+              const votes = t.esgProfileVotesLists || t.esgProfileVotesList || [];
+              
+              // Map indicators by their expected order in the payload
+              const lists = perfilData.levelLists || [];
+              
+              const findIndicator = (listName, voteIndex) => {
+                const list = lists.find(l => l.levelListName === listName);
+                const vote = votes[voteIndex];
+                if (list && vote) {
+                   return list.levelIndicators?.find(ind => ind.id === vote.levelIndicatorId);
+                }
+                return null;
+              };
+
+              // Order sent in tratarSubmit: 
+              // 0: Probabilidade (Impacto)
+              // 1: Intensidade (Impacto)
+              // 2: Abrangência (Impacto)
+              // 3: Urgência (Impacto)
+              // 4: Importância PI (General)
+              // 5: Probabilidade (Financeiro)
+              // 6: Intensidade (Financeiro)
+              // 7: Abrangência (Financeiro)
+              // 8: Urgência (Financeiro)
+              // 9+: Stakeholders
+
+              newTema.probabilidadeIndicator = findIndicator("Níveis de Probabilidade", 0);
+              newTema.probabilidade = newTema.probabilidadeIndicator?.value || 0;
+              
+              newTema.intensidadeIndicator = findIndicator("Níveis de Intensidade", 1);
+              newTema.intensidade = newTema.intensidadeIndicator?.value || 0;
+              
+              newTema.abrangenciaIndicator = findIndicator("Níveis de Abrangência", 2);
+              newTema.abrangencia = newTema.abrangenciaIndicator?.value || 0;
+              
+              newTema.urgenciaIndicator = findIndicator("Níveis de Urgência/Prioridade", 3);
+              newTema.urgencia = newTema.urgenciaIndicator?.value || 0;
+              
+              newTema.importanciaPIIndicator = findIndicator("Níveis de Importância das Partes Interessadas", 4);
+              newTema.importanciaPI = newTema.importanciaPIIndicator?.value || 0;
+              
+              newTema.probabilidadeFinIndicator = findIndicator("Níveis de Probabilidade", 5);
+              newTema.probabilidadeFin = newTema.probabilidadeFinIndicator?.value || 0;
+              
+              newTema.intensidadeFinIndicator = findIndicator("Níveis de Intensidade", 6);
+              newTema.intensidadeFin = newTema.intensidadeFinIndicator?.value || 0;
+              
+              newTema.abrangenciaFinIndicator = findIndicator("Níveis de Abrangência", 7);
+              newTema.abrangenciaFin = newTema.abrangenciaFinIndicator?.value || 0;
+              
+              newTema.urgenciaFinIndicator = findIndicator("Níveis de Urgência/Prioridade", 8);
+              newTema.urgenciaFin = newTema.urgenciaFinIndicator?.value || 0;
+
+              // Stakeholders - Hydrate stakeholderVotes
+              const stIds = perfilData.stakeholders?.map(x => x.id) || perfilData.stakeholderIds || perfilData.profileESGStakeholders?.map(x => x.stakeholderId) || [];
+              if (stIds.length > 0) {
+                const stVotes = {};
+                stIds.forEach((sid, idx) => {
+                   const indicator = findIndicator("Níveis de Importância das Partes Interessadas", 9 + idx);
+                   if (indicator) stVotes[sid] = indicator;
+                });
+                newTema.stakeholderVotes = stVotes;
+              }
+
+              return recalcTema(newTema);
+            })
+          }));
         }
       } catch (err) {
         console.error("Erro ao buscar detalhes do Perfil ESG", err);
@@ -745,6 +927,23 @@ function NovoCicloPriorizacao() {
         addVote("Níveis de Abrangência", tema.abrangenciaIndicator);
         addVote("Níveis de Urgência/Prioridade", tema.urgenciaIndicator);
         addVote("Níveis de Importância das Partes Interessadas", tema.importanciaPIIndicator);
+
+        // Votos financeiros (mesmas LevelLists, prefixo Fin)
+        addVote("Níveis de Probabilidade", tema.probabilidadeFinIndicator);
+        addVote("Níveis de Intensidade", tema.intensidadeFinIndicator);
+        addVote("Níveis de Abrangência", tema.abrangenciaFinIndicator);
+        addVote("Níveis de Urgência/Prioridade", tema.urgenciaFinIndicator);
+
+        // Votos de stakeholders
+        const stakeholderIds = perfilEsgDetalhes?.stakeholders?.map(x => x.id) || perfilEsgDetalhes?.stakeholderIds || perfilEsgDetalhes?.profileESGStakeholders?.map(x => x.stakeholderId) || [];
+        if (tema.stakeholderVotes && stakeholderIds.length > 0) {
+          stakeholderIds.forEach(sid => {
+            const stVote = tema.stakeholderVotes[sid];
+            if (stVote) {
+              addVote("Níveis de Importância das Partes Interessadas", stVote);
+            }
+          });
+        }
 
         return {
           themeId: tema.id || tema.codigo,
@@ -1467,10 +1666,15 @@ function NovoCicloPriorizacao() {
                     intensidade: 0,
                     abrangencia: 0,
                     urgencia: 0,
+                    probabilidadeFin: 0,
+                    intensidadeFin: 0,
+                    abrangenciaFin: 0,
+                    urgenciaFin: 0,
                     significanciaImpacto: 0,
                     significanciaFinanceira: 0,
                     importanciaPI: 0,
                     priorizacao: 0,
+                    stakeholderVotes: {},
                     status: "Monitorado"
                   };
                 });
@@ -1507,180 +1711,312 @@ function NovoCicloPriorizacao() {
           </Grid>
         </Box>
 
-        <TableContainer component={Paper} sx={{ maxHeight: 600 }}>
-          <Table stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>Código</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Tema</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Eixo</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Impactos +</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Impactos -</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Prob.</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Intens.</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Abrang.</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Urgên.</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>StakeHolders</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Sig. Impacto</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Sig. Financeira</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Import. PI</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Priorização</TableCell>
-                {cicloAnteriorDetalhes && (
-                  <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>Nota Ant.</TableCell>
-                )}
-                <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Ações</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {formData.temas.map((tema) => (
-                <TableRow key={tema.codigo} hover>
-                  <TableCell>
-                    <Chip label={tema.codigo} size="small" color="primary" />
+        {/* Abas de avaliação */}
+        {(() => {
+          const stakeholderIds = perfilEsgDetalhes?.stakeholders?.map(x => x.id) || perfilEsgDetalhes?.stakeholderIds || perfilEsgDetalhes?.profileESGStakeholders?.map(x => x.stakeholderId) || [];
+          const stakeholders = stakeholderIds.map(id => {
+            const opt = stakeholdersOptions.find(o => o.id === id);
+            return opt || { id, nome: 'Carregando...' };
+          });
+          const hasStakeholders = stakeholders.length > 0;
+
+          // Define columns for the middle tab section header
+          const renderTabHeaders = () => {
+            if (avaliacaoTab === 0) {
+              return (
+                <>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e3f2fd', minWidth: 130 }}>Prob.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e3f2fd', minWidth: 130 }}>Intens.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e3f2fd', minWidth: 130 }}>Abrang.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e3f2fd', minWidth: 130 }}>Urgên.</TableCell>
+                </>
+              );
+            }
+            if (avaliacaoTab === 1) {
+              return (
+                <>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fff3e0', minWidth: 130 }}>Prob.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fff3e0', minWidth: 130 }}>Intens.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fff3e0', minWidth: 130 }}>Abrang.</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fff3e0', minWidth: 130 }}>Urgên.</TableCell>
+                </>
+              );
+            }
+            if (avaliacaoTab === 2 && hasStakeholders) {
+              return stakeholders.map((st, idx) => (
+                <TableCell key={st.id || idx} sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9', minWidth: 130 }}>
+                  {st.nome || st.name || st.stakeholderName || `Stakeholder ${idx + 1}`}
+                </TableCell>
+              ));
+            }
+            return null;
+          };
+
+          // Render middle columns per row based on active tab
+          const renderTabCells = (tema) => {
+            if (avaliacaoTab === 0) {
+              return (
+                <>
+                  <TableCell sx={{ backgroundColor: '#f5f9ff' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="probabilidade" listName="Níveis de Probabilidade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
                   </TableCell>
-                  <TableCell sx={{ minWidth: 200, fontWeight: 500 }}>{tema.tema}</TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={tema.eixo} 
-                      size="small"
-                      sx={{ 
-                        backgroundColor: eixosEsg.find(e => e.nome === tema.eixo)?.cor,
-                        color: 'white'
-                      }}
-                    />
+                  <TableCell sx={{ backgroundColor: '#f5f9ff' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="intensidade" listName="Níveis de Intensidade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
                   </TableCell>
-                  <TableCell sx={{ minWidth: 150 }}>
-                    {tema.impactosPositivos.map((impacto, idx) => (
-                      <Chip key={idx} label={impacto.nome} size="small" color="success" sx={{ m: 0.25 }} />
-                    ))}
+                  <TableCell sx={{ backgroundColor: '#f5f9ff' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="abrangencia" listName="Níveis de Abrangência" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
                   </TableCell>
-                  <TableCell sx={{ minWidth: 150 }}>
-                    {tema.impactosNegativos.map((impacto, idx) => (
-                      <Chip key={idx} label={impacto.nome} size="small" color="error" sx={{ m: 0.25 }} />
-                    ))}
+                  <TableCell sx={{ backgroundColor: '#f5f9ff' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="urgencia" listName="Níveis de Urgência/Prioridade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
                   </TableCell>
-                  <TableCell>
+                </>
+              );
+            }
+            if (avaliacaoTab === 1) {
+              return (
+                <>
+                  <TableCell sx={{ backgroundColor: '#fffbf0' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="probabilidadeFin" listName="Níveis de Probabilidade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
+                  </TableCell>
+                  <TableCell sx={{ backgroundColor: '#fffbf0' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="intensidadeFin" listName="Níveis de Intensidade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
+                  </TableCell>
+                  <TableCell sx={{ backgroundColor: '#fffbf0' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="abrangenciaFin" listName="Níveis de Abrangência" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
+                  </TableCell>
+                  <TableCell sx={{ backgroundColor: '#fffbf0' }}>
+                    <IndicatorMenuCell tema={tema} fieldName="urgenciaFin" listName="Níveis de Urgência/Prioridade" perfilEsgDetalhes={perfilEsgDetalhes} formData={formData} handleInputChange={handleInputChange} />
+                  </TableCell>
+                </>
+              );
+            }
+            if (avaliacaoTab === 2 && hasStakeholders) {
+              return stakeholders.map((st, idx) => {
+                const stId = st.id || idx;
+                const stFieldName = `stakeholder_${stId}`;
+                return (
+                  <TableCell key={stId} sx={{ backgroundColor: '#f5faf5' }}>
                     <IndicatorMenuCell
                       tema={tema}
-                      fieldName="probabilidade"
-                      listName="Níveis de Probabilidade"
-                      perfilEsgDetalhes={perfilEsgDetalhes}
-                      formData={formData}
-                      handleInputChange={handleInputChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IndicatorMenuCell
-                      tema={tema}
-                      fieldName="intensidade"
-                      listName="Níveis de Intensidade"
-                      perfilEsgDetalhes={perfilEsgDetalhes}
-                      formData={formData}
-                      handleInputChange={handleInputChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IndicatorMenuCell
-                      tema={tema}
-                      fieldName="abrangencia"
-                      listName="Níveis de Abrangência"
-                      perfilEsgDetalhes={perfilEsgDetalhes}
-                      formData={formData}
-                      handleInputChange={handleInputChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IndicatorMenuCell
-                      tema={tema}
-                      fieldName="urgencia"
-                      listName="Níveis de Urgência/Prioridade"
-                      perfilEsgDetalhes={perfilEsgDetalhes}
-                      formData={formData}
-                      handleInputChange={handleInputChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IndicatorMenuCell
-                      tema={tema}
-                      fieldName="importanciaPI"
+                      fieldName={stFieldName}
                       listName="Níveis de Importância das Partes Interessadas"
                       perfilEsgDetalhes={perfilEsgDetalhes}
                       formData={formData}
                       handleInputChange={handleInputChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="bold">
-                      {tema.significanciaImpacto?.toFixed(1) || "0.0"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <TextField
-                      size="small"
-                      type="number"
-                      inputProps={{ min: 0, max: 10, step: 0.1 }}
-                      value={tema.significanciaFinanceira || 0}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
+                      onSelect={(indicator) => {
                         const updatedTemas = formData.temas.map(t => {
-                           if(t.codigo === tema.codigo) {
-                              const newT = { ...t, significanciaFinanceira: val };
-                              newT.priorizacao = ((newT.significanciaImpacto || 0) + val + (newT.importanciaPI || 0)) / 3;
-                              return newT;
-                           }
-                           return t;
+                          if (t.codigo === tema.codigo) {
+                            const newTema = {
+                              ...t,
+                              stakeholderVotes: {
+                                ...(t.stakeholderVotes || {}),
+                                [stId]: indicator
+                              }
+                            };
+                            return recalcTema(newTema);
+                          }
+                          return t;
                         });
                         handleInputChange('temas', updatedTemas);
                       }}
-                      sx={{ width: 70 }}
                     />
                   </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="bold">
-                      {tema.importanciaPI?.toFixed(1) || "0.0"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="bold" color="primary">
-                      {tema.priorizacao?.toFixed(1) || "0.0"}
-                    </Typography>
-                  </TableCell>
-                  {cicloAnteriorDetalhes && (
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {(() => {
-                          const oldEval = cicloAnteriorDetalhes.themeEvaluations?.find(e => e.themeId === (tema.id || tema.codigo));
-                          return oldEval?.priorizacao?.toFixed(1) || "-";
-                        })()}
-                      </Typography>
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <Chip 
-                      label={tema.status} 
-                      size="small"
-                      color={tema.status === 'Priorizado' ? 'success' : 'warning'}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title="Visualizar detalhes">
-                        <IconButton size="small" onClick={() => handleViewTema(tema)}>
-                          <VisibilityIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Editar tema">
-                        <IconButton size="small" onClick={() => handleEditTema(tema)}>
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                );
+              });
+            }
+            return null;
+          };
+
+          return (
+            <>
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 0, display: 'flex', justifyContent: 'center' }}>
+                <Tabs
+                  value={avaliacaoTab}
+                  onChange={(e, newVal) => setAvaliacaoTab(newVal)}
+                  centered
+                  sx={{
+                    '& .MuiTab-root': { 
+                      fontWeight: 600, 
+                      textTransform: 'none', 
+                      fontSize: '0.875rem',
+                      minHeight: 48,
+                      px: 3,
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                        opacity: 1
+                      }
+                    },
+                    '& .Mui-selected': { 
+                      color: 'primary.main',
+                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      fontWeight: 700
+                    },
+                    '& .MuiTabs-indicator': {
+                      height: 3,
+                      borderRadius: '3px 3px 0 0'
+                    }
+                  }}
+                >
+                  <Tab label="Significância de Impacto" sx={{ color: '#1565c0' }} />
+                  <Tab label="Significância Financeira" sx={{ color: '#e65100' }} />
+                  <Tab 
+                    label="Stakeholders" 
+                    disabled={!hasStakeholders || formData.temas.length === 0}
+                    sx={{ 
+                      color: '#2e7d32',
+                      '&.Mui-disabled': { color: 'text.disabled', opacity: 0.5 }
+                    }} 
+                  />
+                </Tabs>
+              </Box>
+
+              <TableContainer component={Paper} sx={{ maxHeight: 600, borderRadius: '0 0 8px 8px' }}>
+                <Table stickyHeader size="small">
+                  <TableHead>
+                    <TableRow>
+                      {/* Seção Fixa Esquerda */}
+                      <TableCell sx={{ fontWeight: 'bold', borderRight: '2px solid #e0e0e0', position: 'sticky', left: 0, zIndex: 3, backgroundColor: '#fafafa' }}>Código</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', borderRight: '2px solid #e0e0e0', backgroundColor: '#fafafa' }}>Tema</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Eixo</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Impactos +</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa', borderRight: '2px solid #e0e0e0' }}>Impactos -</TableCell>
+
+                      {/* Seção Mutável (Abas) */}
+                      {renderTabHeaders()}
+
+                      {/* Seção Fixa Direita */}
+                      <TableCell sx={{ fontWeight: 'bold', borderLeft: '2px solid #e0e0e0', backgroundColor: '#fafafa' }}>Sig. Impacto</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Sig. Financeira</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Import. PI</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Priorização</TableCell>
+                      {cicloAnteriorDetalhes && (
+                        <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary', backgroundColor: '#fafafa' }}>Nota Ant.</TableCell>
+                      )}
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#fafafa' }}>Ações</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {formData.temas.map((tema) => (
+                      <TableRow key={tema.codigo} hover>
+                        {/* Seção Fixa Esquerda */}
+                        <TableCell sx={{ borderRight: '2px solid #e0e0e0' }}>
+                          <Chip label={tema.codigo} size="small" color="primary" />
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 200, fontWeight: 500, borderRight: '2px solid #e0e0e0' }}>{tema.tema}</TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={tema.eixo} 
+                            size="small"
+                            sx={{ 
+                              backgroundColor: eixosEsg.find(e => e.nome === tema.eixo)?.cor,
+                              color: 'white'
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 120 }}>
+                          {(tema.impactosPositivos || []).filter(impacto => {
+                             if (avaliacaoTab === 0) return tema.sigImpactIds?.includes(impacto.esgImpactId || impacto.id);
+                             if (avaliacaoTab === 1) return tema.finImpactIds?.includes(impacto.esgImpactId || impacto.id);
+                             return true;
+                          }).map((impacto, idx) => (
+                            <Chip key={idx} label={impacto.nome} size="small" color="success" sx={{ m: 0.25 }} />
+                          ))}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 120, borderRight: '2px solid #e0e0e0' }}>
+                          {(tema.impactosNegativos || []).filter(impacto => {
+                             if (avaliacaoTab === 0) return tema.sigImpactIds?.includes(impacto.esgImpactId || impacto.id);
+                             if (avaliacaoTab === 1) return tema.finImpactIds?.includes(impacto.esgImpactId || impacto.id);
+                             return true;
+                          }).map((impacto, idx) => (
+                            <Chip key={idx} label={impacto.nome} size="small" color="error" sx={{ m: 0.25 }} />
+                          ))}
+                        </TableCell>
+
+                        {/* Seção Mutável (Abas) */}
+                        {renderTabCells(tema)}
+
+                        {/* Seção Fixa Direita */}
+                        <TableCell sx={{ borderLeft: '2px solid #e0e0e0' }}>
+                          <Tooltip title="Média: Prob. + Intens. + Abrang. + Urgên. (Impacto)">
+                            <Typography variant="body2" fontWeight="bold" sx={{ 
+                              color: tema.significanciaImpacto > 0 ? '#1565c0' : 'text.secondary',
+                              backgroundColor: tema.significanciaImpacto > 0 ? '#e3f2fd' : 'transparent',
+                              borderRadius: '4px', padding: '2px 6px', display: 'inline-block'
+                            }}>
+                              {tema.significanciaImpacto?.toFixed(1) || "0.0"}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title="Média: Prob. + Intens. + Abrang. + Urgên. (Financeira)">
+                            <Typography variant="body2" fontWeight="bold" sx={{
+                              color: tema.significanciaFinanceira > 0 ? '#e65100' : 'text.secondary',
+                              backgroundColor: tema.significanciaFinanceira > 0 ? '#fff3e0' : 'transparent',
+                              borderRadius: '4px', padding: '2px 6px', display: 'inline-block'
+                            }}>
+                              {tema.significanciaFinanceira?.toFixed(1) || "0.0"}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title="Média dos votos de Stakeholders">
+                            <Typography variant="body2" fontWeight="bold" sx={{
+                              color: tema.importanciaPI > 0 ? '#2e7d32' : 'text.secondary',
+                              backgroundColor: tema.importanciaPI > 0 ? '#e8f5e9' : 'transparent',
+                              borderRadius: '4px', padding: '2px 6px', display: 'inline-block'
+                            }}>
+                              {tema.importanciaPI?.toFixed(1) || "0.0"}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="bold" color="primary" sx={{
+                            backgroundColor: '#e8eaf6', borderRadius: '4px', padding: '2px 8px', display: 'inline-block'
+                          }}>
+                            {tema.priorizacao?.toFixed(1) || "0.0"}
+                          </Typography>
+                        </TableCell>
+                        {cicloAnteriorDetalhes && (
+                          <TableCell>
+                            <Typography variant="body2" color="text.secondary">
+                              {(() => {
+                                const oldEval = cicloAnteriorDetalhes.themeEvaluations?.find(e => e.themeId === (tema.id || tema.codigo));
+                                return oldEval?.priorizacao?.toFixed(1) || "-";
+                              })()}
+                            </Typography>
+                          </TableCell>
+                        )}
+                        <TableCell>
+                          <Chip 
+                            label={tema.status} 
+                            size="small"
+                            color={tema.status === 'Priorizado' ? 'success' : 'warning'}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <Tooltip title="Visualizar detalhes">
+                              <IconButton size="small" onClick={() => handleViewTema(tema)}>
+                                <VisibilityIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Editar tema">
+                              <IconButton size="small" onClick={() => handleEditTema(tema)}>
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          );
+        })()}
       </CardContent>
     </Card>
   );
@@ -1808,108 +2144,72 @@ function NovoCicloPriorizacao() {
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Stack spacing={1}>
-                    <InputLabel>Probabilidade</InputLabel>
+                    <InputLabel>Probabilidade (Impacto)</InputLabel>
                     <IndicatorMenuCell 
                       tema={editingTema}
                       fieldName="probabilidade"
                       listName="Níveis de Probabilidade"
                       perfilEsgDetalhes={perfilEsgDetalhes}
                       onSelect={(indicator) => {
-                        const p = indicator.value;
-                        const i = editingTema.intensidadeIndicator?.value || editingTema.intensidade || 0;
-                        const a = editingTema.abrangenciaIndicator?.value || editingTema.abrangencia || 0;
-                        const u = editingTema.urgenciaIndicator?.value || editingTema.urgencia || 0;
-                        const pi = editingTema.importanciaPIIndicator?.value || editingTema.importanciaPI || 0;
-                        const f = parseFloat(editingTema.significanciaFinanceira) || 0;
-                        const sigImp = (p + i + a + u) / 4;
-                        setEditingTema({
+                        setEditingTema(recalcTema({
                           ...editingTema, 
                           probabilidadeIndicator: indicator, 
-                          probabilidade: p,
-                          significanciaImpacto: sigImp,
-                          priorizacao: (sigImp + f + pi) / 3
-                        });
+                          probabilidade: indicator.value
+                        }));
                       }}
                     />
                   </Stack>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Stack spacing={1}>
-                    <InputLabel>Intensidade</InputLabel>
+                    <InputLabel>Intensidade (Impacto)</InputLabel>
                     <IndicatorMenuCell 
                       tema={editingTema}
                       fieldName="intensidade"
                       listName="Níveis de Intensidade"
                       perfilEsgDetalhes={perfilEsgDetalhes}
                       onSelect={(indicator) => {
-                        const p = editingTema.probabilidadeIndicator?.value || editingTema.probabilidade || 0;
-                        const i = indicator.value;
-                        const a = editingTema.abrangenciaIndicator?.value || editingTema.abrangencia || 0;
-                        const u = editingTema.urgenciaIndicator?.value || editingTema.urgencia || 0;
-                        const pi = editingTema.importanciaPIIndicator?.value || editingTema.importanciaPI || 0;
-                        const f = parseFloat(editingTema.significanciaFinanceira) || 0;
-                        const sigImp = (p + i + a + u) / 4;
-                        setEditingTema({
+                        setEditingTema(recalcTema({
                           ...editingTema, 
                           intensidadeIndicator: indicator, 
-                          intensidade: i,
-                          significanciaImpacto: sigImp,
-                          priorizacao: (sigImp + f + pi) / 3
-                        });
+                          intensidade: indicator.value
+                        }));
                       }}
                     />
                   </Stack>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Stack spacing={1}>
-                    <InputLabel>Abrangência</InputLabel>
+                    <InputLabel>Abrangência (Impacto)</InputLabel>
                     <IndicatorMenuCell 
                       tema={editingTema}
                       fieldName="abrangencia"
                       listName="Níveis de Abrangência"
                       perfilEsgDetalhes={perfilEsgDetalhes}
                       onSelect={(indicator) => {
-                        const p = editingTema.probabilidadeIndicator?.value || editingTema.probabilidade || 0;
-                        const i = editingTema.intensidadeIndicator?.value || editingTema.intensidade || 0;
-                        const a = indicator.value;
-                        const u = editingTema.urgenciaIndicator?.value || editingTema.urgencia || 0;
-                        const pi = editingTema.importanciaPIIndicator?.value || editingTema.importanciaPI || 0;
-                        const f = parseFloat(editingTema.significanciaFinanceira) || 0;
-                        const sigImp = (p + i + a + u) / 4;
-                        setEditingTema({
+                        setEditingTema(recalcTema({
                           ...editingTema, 
                           abrangenciaIndicator: indicator, 
-                          abrangencia: a,
-                          significanciaImpacto: sigImp,
-                          priorizacao: (sigImp + f + pi) / 3
-                        });
+                          abrangencia: indicator.value
+                        }));
                       }}
                     />
                   </Stack>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Stack spacing={1}>
-                    <InputLabel>Urgência</InputLabel>
+                    <InputLabel>Urgência (Impacto)</InputLabel>
                     <IndicatorMenuCell 
                       tema={editingTema}
                       fieldName="urgencia"
                       listName="Níveis de Urgência/Prioridade"
                       perfilEsgDetalhes={perfilEsgDetalhes}
                       onSelect={(indicator) => {
-                        const p = editingTema.probabilidadeIndicator?.value || editingTema.probabilidade || 0;
-                        const i = editingTema.intensidadeIndicator?.value || editingTema.intensidade || 0;
-                        const a = editingTema.abrangenciaIndicator?.value || editingTema.abrangencia || 0;
-                        const u = indicator.value;
-                        const pi = editingTema.importanciaPIIndicator?.value || editingTema.importanciaPI || 0;
-                        const f = parseFloat(editingTema.significanciaFinanceira) || 0;
-                        const sigImp = (p + i + a + u) / 4;
-                        setEditingTema({
+                        setEditingTema(recalcTema({
                           ...editingTema, 
                           urgenciaIndicator: indicator, 
-                          urgencia: u,
-                          significanciaImpacto: sigImp,
-                          priorizacao: (sigImp + f + pi) / 3
-                        });
+                          urgencia: indicator.value
+                        }));
                       }}
                     />
                   </Stack>

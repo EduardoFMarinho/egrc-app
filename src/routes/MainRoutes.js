@@ -662,6 +662,10 @@ const MainRoutes = {
               path: 'criar',
               element: <NovoPadroesFrameworks />
             },
+            {
+              path: 'editar/:topicCode',
+              element: <NovoPadroesFrameworks />
+            },
           ]
         },
         {

@@ -17,8 +17,23 @@ import {
   DialogTitle,
   Divider,
   Chip,
+  ToggleButton,
+  ToggleButtonGroup,
+  Card,
+  CardHeader,
+  CardContent,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Checkbox
 } from "@mui/material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { enqueueSnackbar } from "notistack";
@@ -50,9 +65,8 @@ function NovoTema() {
   const [gruposTema, setGruposTema] = useState([]);
   const [stakeholders, setStakeholders] = useState([]);
   const [ods, setOds] = useState([]);
-  const [capitais] = useState([]);
-  const [impactosEsgFinanceiro] = useState([]);
-  const [impactosEsgImpacto] = useState([]);
+  const [capitais, setCapitais] = useState([]);
+  const [esgImpacts, setEsgImpacts] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [processos, setProcessos] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
@@ -84,8 +98,7 @@ function NovoTema() {
     stakeholders: [],
     ods: [],
     capitais: [],
-    significanciaFinanceira: [],
-    significanciaDeImpacto: [],
+    impactosEsg: [],
     empresaTema: [],
     processoTema: [],
     departamentoTema: [],
@@ -115,6 +128,8 @@ function NovoTema() {
           { url: `${API_URL}Framework`, setter: setFrameworks, nameKey: 'frameworkName' },
           { url: `${API_URL}FrameworkTopic`, setter: setFrameworkTopics, nameKey: 'frameworkTopicName' },
           { url: `${API_URL}action-plans`, setter: setPlanosAcao, nameKey: 'name' },
+          { url: `${API_URL}ESGImpact`, setter: setEsgImpacts, nameKey: 'impactESGName' },
+          { url: `${API_URL}Theme/capitals`, setter: setCapitais, nameKey: 'name' },
         ];
 
         await Promise.all(requests.map(async (req) => {
@@ -193,8 +208,13 @@ function NovoTema() {
         stakeholders: findMultiple(stakeholders, localTemaDados.themeStakeholders?.map(x => x.id) || localTemaDados.stakeholderIds || []),
         ods: findMultiple(ods, localTemaDados.themeSDGs?.map(x => x.id) || localTemaDados.sdgIds || []),
         capitais: findMultiple(capitais, localTemaDados.themeCapitals?.map(x => x.id) || localTemaDados.capitalIds || []),
-        significanciaFinanceira: findMultiple(impactosEsgFinanceiro, localTemaDados.themeFinancialSignificances?.map(x => x.id) || localTemaDados.financialSignificanceIds || []),
-        significanciaDeImpacto: findMultiple(impactosEsgImpacto, localTemaDados.themeSignificanceImpacts?.map(x => x.id) || localTemaDados.significanceImpactIds || []),
+        impactosEsg: findMultiple(esgImpacts, (localTemaDados.themeESGImpacts || []).map(x => x.esgImpactId)).map(impact => {
+          const apiRelation = (localTemaDados.themeESGImpacts || []).find(x => x.esgImpactId === impact.id);
+          let context = [];
+          if (apiRelation?.isFinancialSignificance) context.push(1);
+          if (apiRelation?.isImpactSignificance) context.push(2);
+          return { ...impact, significanceContext: context };
+        }),
         empresaTema: findMultiple(empresas, localTemaDados.themeCompanies?.map(x => x.id) || localTemaDados.companyIds || []),
         processoTema: findMultiple(processos, localTemaDados.themeProcesses?.map(x => x.id) || localTemaDados.processIds || []),
         departamentoTema: findMultiple(departamentos, localTemaDados.themeDepartments?.map(x => x.id) || localTemaDados.departmentIds || []),
@@ -206,7 +226,7 @@ function NovoTema() {
       });
       setHasChanges(false);
     }
-  }, [localTemaDados, colaboradores, gruposTema, indicadores, stakeholders, ods, capitais, impactosEsgFinanceiro, impactosEsgImpacto, empresas, processos, departamentos, riscos, planosAcao, frameworks, frameworkTopics, optionsLoading]);
+  }, [localTemaDados, colaboradores, gruposTema, indicadores, stakeholders, ods, capitais, esgImpacts, empresas, processos, departamentos, riscos, planosAcao, frameworks, frameworkTopics, optionsLoading]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -323,8 +343,11 @@ function NovoTema() {
         sdgIds: uniqueIds(formData.ods),
         capitalIds: uniqueIds(formData.capitais),
         sdgCapitalIds: [],
-        financialSignificanceIds: uniqueIds(formData.significanciaFinanceira),
-        significanceImpactIds: uniqueIds(formData.significanciaDeImpacto),
+        themeESGImpacts: (formData.impactosEsg || []).map(i => ({
+          esgImpactId: i.id,
+          isFinancialSignificance: Array.isArray(i.significanceContext) ? i.significanceContext.includes(1) : (i.significanceContext === 1 || i.significanceContext === 3),
+          isImpactSignificance: Array.isArray(i.significanceContext) ? i.significanceContext.includes(2) : (i.significanceContext === 2 || i.significanceContext === 3)
+        })),
         companyIds: uniqueIds(formData.empresaTema),
         processIds: uniqueIds(formData.processoTema),
         departmentIds: uniqueIds(formData.departamentoTema),
@@ -637,12 +660,23 @@ function NovoTema() {
               <InputLabel>Capitais Relacionados</InputLabel>
               <Autocomplete
                 multiple
+                disableCloseOnSelect
                 options={capitais}
                 getOptionLabel={(option) => option.nome}
                 value={formData.capitais}
                 onChange={handleMultiSelectChange('capitais')}
                 renderInput={(params) => (
                   <TextField {...params} placeholder="Selecione os capitais" />
+                )}
+                renderOption={(props, option, { selected }) => (
+                  <li {...props}>
+                    <Checkbox
+                      size="small"
+                      checked={selected}
+                      style={{ marginRight: 8 }}
+                    />
+                    {option.nome}
+                  </li>
                 )}
                 renderTags={(value, getTagProps) =>
                   value.map((option, index) => (
@@ -651,6 +685,7 @@ function NovoTema() {
                       label={option.nome}
                       {...getTagProps({ index })}
                       key={option.id}
+                      size="small"
                     />
                   ))
                 }
@@ -662,21 +697,42 @@ function NovoTema() {
           <Grid item xs={12}>
             <Divider sx={{ my: 2 }} />
             <Typography variant="h5" gutterBottom>
-              Impactos
+              Gestão de Impactos ESG
+            </Typography>
+            <Typography variant="body2" color="textSecondary" gutterBottom>
+              Selecione os impactos relacionados a este tema e, em seguida, defina o contexto de significância para cada um.
             </Typography>
           </Grid>
 
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12}>
             <Stack spacing={1}>
-              <InputLabel>Significância Financeira</InputLabel>
+              <InputLabel>Impactos ESG Relacionados</InputLabel>
               <Autocomplete
                 multiple
-                options={impactosEsgFinanceiro}
+                options={esgImpacts}
                 getOptionLabel={(option) => option.nome}
-                value={formData.significanciaFinanceira}
-                onChange={handleMultiSelectChange('significanciaFinanceira')}
+                value={formData.impactosEsg || []}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                onChange={(event, newValue) => {
+                  const merged = newValue.map(item => {
+                    const existing = (formData.impactosEsg || []).find(i => i.id === item.id);
+                    return existing ? existing : { ...item, significanceContext: [1, 2] }; // Padrão: Ambos
+                  });
+                  setFormData(prev => ({ ...prev, impactosEsg: merged }));
+                  setHasChanges(true);
+                }}
                 renderInput={(params) => (
-                  <TextField {...params} placeholder="Selecione os impactos financeiros" />
+                  <TextField {...params} placeholder="Pesquise e adicione impactos" />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <Box sx={{ fontWeight: 'bold' }}>{option.nome}</Box>
+                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+                      {option.impactNature === 1 && <Chip size="small" label="+ Positivo" color="success" variant="outlined" />}
+                      {option.impactNature === 2 && <Chip size="small" label="- Negativo" color="error" variant="outlined" />}
+                      <Chip size="small" label={option.impactType === 1 ? 'Real' : (option.impactType === 2 ? 'Potencial' : 'Não classificado')} color="default" variant="outlined" />
+                    </Box>
+                  </li>
                 )}
                 renderTags={(value, getTagProps) =>
                   value.map((option, index) => (
@@ -693,32 +749,86 @@ function NovoTema() {
             </Stack>
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <Stack spacing={1}>
-              <InputLabel>Significância de Impacto</InputLabel>
-              <Autocomplete
-                multiple
-                options={impactosEsgImpacto}
-                getOptionLabel={(option) => option.nome}
-                value={formData.significanciaDeImpacto}
-                onChange={handleMultiSelectChange('significanciaDeImpacto')}
-                renderInput={(params) => (
-                  <TextField {...params} placeholder="Selecione os impactos" />
-                )}
-                renderTags={(value, getTagProps) =>
-                  value.map((option, index) => (
-                    <Chip
-                      variant="outlined"
-                      label={option.nome}
-                      {...getTagProps({ index })}
-                      key={option.id}
-                      size="small"
-                    />
-                  ))
-                }
-              />
-            </Stack>
-          </Grid>
+          {formData.impactosEsg?.length > 0 && (
+            <Grid item xs={12}>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: '#f5f5f5' }}>
+                    <TableRow>
+                      <TableCell>Nome do Impacto</TableCell>
+                      <TableCell>Natureza</TableCell>
+                      <TableCell>Tipo</TableCell>
+                      <TableCell align="center">Sig. Financeira</TableCell>
+                      <TableCell align="center">Sig. de Impacto</TableCell>
+                      <TableCell align="center">Ação</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {formData.impactosEsg.map((impact) => {
+                      const context = impact.significanceContext || [];
+                      const isFinancial = context.includes(1);
+                      const isImpact = context.includes(2);
+
+                      const handleCheck = (val, checked) => {
+                        let newContext = [...context];
+                        if (checked) {
+                          if (!newContext.includes(val)) newContext.push(val);
+                        } else {
+                          newContext = newContext.filter(v => v !== val);
+                        }
+                        setFormData(prev => ({
+                          ...prev,
+                          impactosEsg: prev.impactosEsg.map(i => i.id === impact.id ? { ...i, significanceContext: newContext } : i)
+                        }));
+                        setHasChanges(true);
+                      };
+
+                      return (
+                        <TableRow key={impact.id} hover>
+                          <TableCell sx={{ fontWeight: '500' }}>{impact.nome}</TableCell>
+                          <TableCell>
+                            {impact.impactNature === 1 && <Chip size="small" label="+ Positivo" sx={{ bgcolor: '#dcedc8', color: '#33691e', fontWeight: 'bold' }} />}
+                            {impact.impactNature === 2 && <Chip size="small" label="- Negativo" sx={{ bgcolor: '#ffebee', color: '#c62828', fontWeight: 'bold' }} />}
+                          </TableCell>
+                          <TableCell>
+                            <Chip size="small" label={impact.impactType === 1 ? 'Real' : (impact.impactType === 2 ? 'Potencial' : 'Não classificado')} variant="outlined" />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Checkbox 
+                              color="primary" 
+                              checked={isFinancial} 
+                              onChange={(e) => handleCheck(1, e.target.checked)} 
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Checkbox 
+                              color="primary" 
+                              checked={isImpact} 
+                              onChange={(e) => handleCheck(2, e.target.checked)} 
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <IconButton 
+                              size="small"
+                              onClick={() => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  impactosEsg: prev.impactosEsg.filter(i => i.id !== impact.id)
+                                }));
+                                setHasChanges(true);
+                              }}
+                            >
+                              <DeleteOutlineIcon color="error" fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Grid>
+          )}
 
           {/* Seção: Organização e Gestão */}
           <Grid item xs={12}>

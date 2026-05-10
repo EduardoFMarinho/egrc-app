@@ -651,47 +651,35 @@ function ActionCell({ row, refreshData }) {
   };
 
   const toggleStatus = async () => {
-    const idActionPlan = row.original.idActionPlan;
-    const newStatus = status === true ? "Inativo" : "Ativo";
+    const topicId = row.original.id;
+    const newStatus = !status;
     
     try {
-      // Buscar os dados do departamento pelo ID
-      const getResponse = await axios.get(`${process.env.REACT_APP_API_URL}action-plans/${idActionPlan}`, {
+      const getResponse = await axios.get(`${API_URL}Framework/topic/${topicId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
   
       const dadosEndpoint = getResponse.data;
+      const dadosAtualizados = { ...dadosEndpoint, active: newStatus };
   
-      // Definir o novo status do campo "active"
-      const dadosAtualizados = { ...dadosEndpoint, active: newStatus === "Ativo" };
-  
-      // Enviar os dados atualizados via PUT
-      await axios.put(`${process.env.REACT_APP_API_URL}action-plans`, dadosAtualizados, {
+      await axios.put(`${API_URL}Framework/topic`, dadosAtualizados, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
   
-      // Atualizar o estado e exibir mensagem de sucesso
       setStatus(newStatus);
-      const message = `Plano de ação ${row.original.name} ${newStatus.toLowerCase()}.`;
-  
-      enqueueSnackbar(message, {
+      enqueueSnackbar(`Tópico ${row.original.topicName} ${newStatus ? 'ativado' : 'inativado'} com sucesso.`, {
         variant: "success",
-        autoHideDuration: 3000,
-        anchorOrigin: {
-          vertical: "top",
-          horizontal: "center",
-        },
       });
   
       refreshData();
     } catch (error) {
       console.error("Erro:", error);
-      enqueueSnackbar(`Erro: ${error.response?.data || error.message}`, { variant: "error" });
+      enqueueSnackbar(`Erro ao alterar status: ${error.response?.data || error.message}`, { variant: "error" });
     }
   
     handleDialogClose();
@@ -699,29 +687,16 @@ function ActionCell({ row, refreshData }) {
 
   const handleDelete = async () => {
     try {
-      const response = await fetch(
-        `${API_COMMAND}/api/Orgao/${row.original.id}`,
-        {
-          method: "DELETE",
-        }
-      );
+      await axios.delete(`${API_URL}Framework/topic/${row.original.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-      if (response.ok) {
-        enqueueSnackbar(`Plano de ação ${row.original.nome} excluído.`, {
-          variant: "success",
-          autoHideDuration: 3000,
-          anchorOrigin: {
-            vertical: "top",
-            horizontal: "center",
-          },
-        });
-        refreshData();
-      } else {
-        const errorBody = await response.text();
-        throw new Error(
-          `Falha ao excluir o plano: ${response.status} ${response.statusText} - ${errorBody}`
-        );
-      }
+      enqueueSnackbar(`Tópico ${row.original.topicName} excluído com sucesso.`, {
+        variant: "success",
+      });
+      refreshData();
     } catch (error) {
       console.error("Erro:", error);
       setOpenErrorDialog(true);
@@ -769,10 +744,9 @@ function ActionCell({ row, refreshData }) {
           <Button
             onClick={() => {
               const dadosApi = row.original;
-              navigation(`/padroesFrameworks/criar`, {
+              navigation(`/padroesFrameworks/editar/${dadosApi.topicCode}`, {
                 state: {
-                  indoPara: "NovoTema",
-                  dadosApi,
+                  padraoFrameworkDados: dadosApi,
                 },
               });
               handleClose();
@@ -1162,202 +1136,100 @@ ActionCell.propTypes = {
   refreshData: PropTypes.func.isRequired,
 };
 
-// ==============================|| LISTAGEM ||============================== //
-
-// Componente principal da página de listagem de registros
-const ListagemEmpresa = () => {
+const ListaPadroesFrameworks = () => {
   const theme = useTheme();
   const navigation = useNavigate();
-  const location = useLocation();
-  const { processoSelecionadoId } = location.state || {};
-  const [formData, setFormData] = useState({ refreshCount: 0 });
-  const {
-    acoesJudiciais: lists,
-    isLoading,
-    refetch,
-  } = useGetPlanos(formData, processoSelecionadoId);
-  const processosTotal = lists ? lists.length : 0;
-  const [open, setOpen] = useState(false);
-  const [customerModal, setCustomerModal] = useState(false);
-  const [selectedCustomer] = useState(null);
-  const [customerDeleteId] = useState("");
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const { token } = useToken();
+  const [lists, setLists] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshCount, setRefreshCount] = useState(0);
 
-  // Handler para atualizar 'formData' e disparar uma nova consulta
-  const refreshOrgaos = () => {
-    setFormData((currentData) => ({
-      ...currentData,
-      refreshCount: currentData.refreshCount + 1,
-    }));
-    
+  const fetchFrameworks = async () => {
+    if (!token) return;
+    setIsLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}Framework/topic`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setLists(response.data || []);
+    } catch (error) {
+      console.error("Erro ao buscar padrões e frameworks:", error);
+      enqueueSnackbar("Erro ao carregar a listagem.", { variant: "error" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    const refreshHandler = () => {
-      refreshOrgaos();
-    };
+    fetchFrameworks();
+  }, [token, refreshCount]);
 
-    emitter.on("refreshCustomers", refreshHandler);
-
-    return () => {
-      emitter.off("refreshCustomers", refreshHandler);
-    };
-  }, []);
-
-  // Função para fechar modais
-  const handleClose = () => {
-    setOpen(!open);
-  };
-
-  // Função callback para atualizar formData
-  const handleFormDataChange = (newFormData) => {
-    setFormData(newFormData);
-  };
+  const refreshData = () => setRefreshCount(prev => prev + 1);
 
   // Definição das colunas da tabela
   const columns = useMemo(
     () => [
       {
-        header: "Padrões/Frameworks",
-        accessorKey: "name",
+        header: "Código",
+        accessorKey: "topicCode",
         cell: ({ row }) => (
           <Typography
-          sx={{
-            fontSize: '13px',
-            cursor: "pointer",
-          }}
-            onClick={() => {
-              const dadosApi = row.original;
-              navigation(`/padroesFrameworks/criar`, {
-                state: {
-                  indoPara: "NovoPadroesFrameworks",
-                  dadosApi,
-                },
-              });
-            }}
+            sx={{ fontSize: '13px', cursor: "pointer", color: 'primary.main', fontWeight: 500 }}
+            onClick={() => navigation(`/padroesFrameworks/editar/${row.original.topicCode}`)}
           >
-            {row.original.name}
+            {row.original.topicCode}
           </Typography>
         ),
+      },
+      {
+        header: "Nome do Tópico",
+        accessorKey: "topicName",
+        cell: ({ row }) => (
+          <Typography
+            sx={{ fontSize: '13px', cursor: "pointer" }}
+            onClick={() => navigation(`/padroesFrameworks/editar/${row.original.topicCode}`)}
+          >
+            {row.original.topicName}
+          </Typography>
+        ),
+      },
+      {
+        header: "Framework",
+        accessorKey: "frameworkName",
       },
       {
         header: "Status",
         accessorKey: "active",
         cell: ({ row }) => (
           <Chip
-            label={row.original.active === true ? "Ativo" : "Inativo"}
-            color={row.original.active === true ? "success" : "error"}
-            sx={{
-              backgroundColor: "transparent",
-              color: "#00000099",
-              fontWeight: 600,
-              fontSize: "12px",
-              height: "28px",
-              "& .MuiChip-icon": {
-                color:
-                  row.original.active === true ? "success.main" : "error.main",
-                marginLeft: "4px",
-              },
-            }}
-            icon={
-              <span
-                style={{
-                  backgroundColor:
-                    row.original.active === true ? "green" : "red",
-                  borderRadius: "50%",
-                  display: "inline-block",
-                  width: "8px",
-                  height: "8px",
-                  marginRight: "-6px",
-                  marginLeft: "2px",
-                }}
-              />
-            }
+            label={row.original.active !== false ? "Ativo" : "Inativo"}
+            color={row.original.active !== false ? "success" : "error"}
+            variant="combined"
+            size="small"
           />
         ),
       },
       {
-        header: " ",
+        header: "Actions",
         disableSortBy: true,
         cell: ({ row }) => (
-          <ActionCell row={row} refreshData={refreshOrgaos} />
-        ), // Passa refreshData
+          <ActionCell row={row} refreshData={refreshData} />
+        ),
       },
     ],
-    [theme]
+    [navigation]
   );
 
-  useEffect(() => {
-    if (isInitialLoad && !isLoading) {
-      setIsInitialLoad(false);
-    }
-  }, [isLoading, isInitialLoad]);
-
   return (
-    <>
-
-      {isInitialLoad && isLoading ? (
-        // Exibir indicador de carregamento apenas no carregamento inicial
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            height: "50vh",
-          }}
-        >
-          <CircularProgress />
-        </div>
-      ) : (
-        <Box>
-          <ReactTable
-            {...{ data: lists, columns, onFormDataChange: handleFormDataChange, isLoading, processosTotal, refreshData: refreshOrgaos }}
-          />
-          <Grid container spacing={2}>
-            {/* ReactTable com tamanho reduzido */}
-            <Grid item xs={12}>
-              <Box sx={{ transform: "scale(0.9)", transformOrigin: "top left" }}> {/* Redução de tamanho */}
-
-              </Box>
-            </Grid>
-
-            {/* Gráfico de Ativos/Inativos ao lado da tabela */}
-            {/* <Grid item xs={12} md={4}>
-              <ReactApexChart options={activeStatusData.options} series={activeStatusData.series} type="pie" height={300} />
-            </Grid> */}
-          </Grid>
-
-          {/* Restante dos gráficos abaixo */}
-          {/* <Grid container spacing={2} sx={{ marginTop: 4 }}>
-            <Grid item xs={12} md={6}>
-              <ReactApexChart options={yearlyProcessData.options} series={yearlyProcessData.series} type="bar" height={300} />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <ReactApexChart options={monthlyProcessData.options} series={monthlyProcessData.series} type="bar" height={300} />
-            </Grid>
-            <Grid item xs={12}>
-              <ReactApexChart options={heatmapOptions} series={heatmapSeries} type="heatmap" height={350} />
-            </Grid>
-            <Grid item xs={12}>
-              <ReactApexChart options={stackedColumnOptions} series={stackedColumnSeries.series} type="bar" height={350} />
-            </Grid>
-          </Grid> */}
-        </Box>
-
-      )}
-      <AlertCustomerDelete
-        id={customerDeleteId}
-        title={customerDeleteId}
-        open={open}
-        handleClose={handleClose}
+    <Box>
+      <ReactTable
+        data={lists}
+        columns={columns}
+        isLoading={isLoading}
+        processosTotal={lists.length}
       />
-      <CustomerModal
-        open={customerModal}
-        modalToggler={setCustomerModal}
-        customer={selectedCustomer}
-      />
-    </>
+    </Box>
   );
 };
 
-export default ListagemEmpresa;
+export default ListaPadroesFrameworks;

@@ -61,3 +61,6 @@ serviceWorker.js
 
 # next.js build output
 .next
+
+# local backend folder
+egrc-api-main/

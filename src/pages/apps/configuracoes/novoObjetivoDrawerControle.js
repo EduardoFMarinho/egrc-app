@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Button,
   Tooltip,
@@ -19,7 +19,6 @@ import { useToken } from "../../../api/TokenContext";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import IconButton from "@mui/material/IconButton";
-import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
@@ -27,8 +26,12 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
   const { token } = useToken();
   const location = useLocation();
   const { dadosApi } = location.state || {};
+  
+  // CORREÇÃO 1: Adicionado estado de 'codigo' e corrigido o setter da 'descricao'
+  const [codigo, setCodigo] = useState("");
   const [nome, setNome] = useState("");
-  const [descricao, setCodigo] = useState("");
+  const [descricao, setDescricao] = useState(""); 
+  
   const [loading, setLoading] = useState(false);
   const [requisicao] = useState("Criar");
   const [mensagemFeedback] = useState("cadastrado");
@@ -43,9 +46,11 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
 
   useEffect(() => {
     if (open) {
-      setNome("");
       setCodigo("");
+      setNome("");
+      setDescricao("");
       setFormValidation({
+        codigo: true,
         nome: true,
         descricao: true,
       });
@@ -53,7 +58,9 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
     }
   }, [open]);
 
+  // CORREÇÃO 2: Adicionada validação do código
   const [formValidation, setFormValidation] = useState({
+    codigo: true,
     nome: true,
     descricao: true,
   });
@@ -64,9 +71,13 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
     let payload = {};
 
     const missingFields = [];
+    if (!codigo.trim()) {
+      setFormValidation((prev) => ({ ...prev, codigo: false }));
+      missingFields.push("Código");
+    }
     if (!nome.trim()) {
       setFormValidation((prev) => ({ ...prev, nome: false }));
-      missingFields.push("Nome");
+      missingFields.push("Referência");
     }
     if (!descricao.trim()) {
       setFormValidation((prev) => ({ ...prev, descricao: false }));
@@ -74,7 +85,7 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
     }
     if (missingFields.length > 0) {
       enqueueSnackbar(
-        `Os campos ${missingFields.join(" e ")} são obrigatórios!`,
+        `Os campos ${missingFields.join(", ")} são obrigatórios!`,
         { variant: "error" }
       );
       return;
@@ -83,7 +94,9 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
     if (requisicao === "Criar") {
       url = `${process.env.REACT_APP_API_URL}objective`;
       method = "POST";
+      // CORREÇÃO 3: Enviando o 'code' no payload
       payload = {
+        code: codigo,
         name: nome,
         description: descricao,
       };
@@ -142,7 +155,6 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
         </Button>
       </Tooltip>
 
-      {/* Drawer substituindo Dialog */}
       <Drawer
         anchor="right"
         open={open}
@@ -174,7 +186,22 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
             adapterLocale={ptBR}
           >
             <Grid container spacing={2} marginTop={2}>
-              <Grid item xs={12} mb={3}>
+              {/* CORREÇÃO 4: Adicionado input para o Código no Grid */}
+              <Grid item xs={6} mb={3}>
+                <Stack spacing={1}>
+                  <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
+                    Código *
+                  </InputLabel>
+                  <TextField
+                    onChange={(event) => setCodigo(event.target.value)}
+                    fullWidth
+                    value={codigo}
+                    error={!codigo && !formValidation.codigo}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={6} mb={3}>
                 <Stack spacing={1}>
                   <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
                     Referência *
@@ -187,13 +214,14 @@ function ColumnsLayoutsDrawer({ buttonSx, onObjetivoCreated }) {
                   />
                 </Stack>
               </Grid>
+              
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
                   <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
                     Descrição *
                   </InputLabel>
                   <TextField
-                    onChange={(event) => setCodigo(event.target.value)}
+                    onChange={(event) => setDescricao(event.target.value)}
                     fullWidth
                     multiline
                     rows={4}

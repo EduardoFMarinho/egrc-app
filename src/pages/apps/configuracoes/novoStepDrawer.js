@@ -397,7 +397,7 @@ function DrawerAcionista({ acionista, hideButton = false }) {
               <Grid item xs={12} mb={1.5}>
                 <Stack spacing={1}>
                   <InputLabel sx={{ fontSize: "12px", fontWeight: 600 }}>
-                    Data de conclusão
+                    Data de conclusão *
                   </InputLabel>
                   <DatePicker
                     value={formData.finalStep || null}

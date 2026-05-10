@@ -34,6 +34,21 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import ListagemAtributo from "./listaAtributo";
 import ListagemResultado from "./listaResultado";
 
+const normalizeId = (value) => {
+  if (value == null) return "";
+
+  if (typeof value === "object") {
+    return normalizeId(
+      value.id ??
+        value.idReviewer ??
+        value.idCollaborator ??
+        value.id_responsible
+    );
+  }
+
+  return String(value).trim().replace(/^"|"$/g, "").toLowerCase();
+};
+
 // ==============================|| LAYOUTS - COLUMNS ||============================== //
 function ColumnsLayouts() {
   const { token } = useToken();
@@ -78,10 +93,6 @@ function ColumnsLayouts() {
     { id: 4, nome: "Concluído" },
     { id: 5, nome: "Revisado" },
   ]);
-  const [conclusaoTestes] = useState([
-    { id: 1, nome: "Efetivo" },
-    { id: 2, nome: "Inefetivo" },
-  ]);
   const [tipoTestes] = useState([
     { id: 1, nome: "Desenho" },
     { id: 2, nome: "Operação" },
@@ -119,7 +130,6 @@ function ColumnsLayouts() {
     assertion: [],
     departamento: [],
     categoria: "",
-    conclusaoTeste: "",
     frequencia: "",
     projeto: "",
     testador: idUser,
@@ -266,7 +276,6 @@ function ColumnsLayouts() {
           setFormData((prev) => ({
             ...prev,
             testador: isInitialEdit ? data.idTester : idUser,
-            conclusaoTeste: data.testConclusion,
             status: data.testPhaseStatus,
             revisor: data.idReviewers || [],
             deficiencia: getPhaseDeficiencyId(data),
@@ -377,18 +386,33 @@ function ColumnsLayouts() {
 
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
+  const reviewerIds = useMemo(
+    () =>
+      Array.isArray(formData.revisor)
+        ? formData.revisor.map((revisor) => normalizeId(revisor))
+        : [],
+    [formData.revisor]
+  );
+  const currentUserId = normalizeId(idUser);
+  const status = faseTesteDados?.testPhaseStatus || formData.status;
+  const creating = originalRequisicao === "Criar";
+  const editing = !creating; // originalRequisicao === "Editar"
+  const started = hasStartedByTester;
+  const isTester =
+    Boolean(currentUserId) && currentUserId === normalizeId(formData.testador);
+  const isReviewer = Boolean(currentUserId) && reviewerIds.includes(currentUserId);
+  const showReviewerDecisionActions = editing && status === 3 && isReviewer;
+
   const { buttonTitle } = useMemo(() => {
-    const currentStatus = faseTesteDados?.testPhaseStatus || formData.status;
-    const tester = idUser === formData.testador;
     let title = "";
-    if (currentStatus === 1 && tester) title = "INICIAR";
-    else if (currentStatus === 2 && tester) title = "TESTE REALIZADO";
-    else if (currentStatus === 3 && formData.revisor.includes(idUser))
+    if (status === 1 && isTester) title = "INICIAR";
+    else if (status === 2 && isTester) title = "TESTE REALIZADO";
+    else if (showReviewerDecisionActions)
       title = "REVISADO / RETORNAR";
-    else if (currentStatus === 5 && formData.revisor.includes(idUser))
+    else if (status === 5 && isReviewer)
       title = "RETORNAR";
-    return { buttonTitle: title, isTester: tester };
-  }, [idUser, formData, faseTesteDados]);
+    return { buttonTitle: title };
+  }, [status, isTester, isReviewer, showReviewerDecisionActions]);
 
   const handleStart = async () => {
     let url = "";
@@ -506,7 +530,6 @@ function ColumnsLayouts() {
           sampleSelectionMethodology: descricaoMetodologia,
           active: true,
           files: finalFilesPayload,
-          testConclusion: formData.conclusaoTeste,
           reviewers: hasReviewers
             ? formData.revisor.map((reviewerId, index) => ({
                 order: index,
@@ -590,10 +613,6 @@ function ColumnsLayouts() {
     // Campos obrigatórios apenas para status "teste realizado"
     if (!dataConclusaoEfetiva) {
       missingFields.push("Data de conclusão");
-    }
-    
-    if (!formData.conclusaoTeste) {
-      missingFields.push("Conclusão do teste");
     }
     
     if (!descricaoTestador || descricaoTestador.trim() === "") {
@@ -700,7 +719,6 @@ function ColumnsLayouts() {
           sampleSelectionMethodology: descricaoMetodologia,
           active: true,
           files: finalFilesPayload,
-          testConclusion: formData.conclusaoTeste,
           reviewers: hasReviewers
             ? formData.revisor.map((reviewerId, index) => ({
                 order: index,
@@ -876,7 +894,6 @@ function ColumnsLayouts() {
           sampleSelectionMethodology: descricaoMetodologia,
           active: true,
           files: finalFilesPayload,
-          testConclusion: formData.conclusaoTeste,
           reviewers: formData.revisor.map((reviewerId, index) => ({
             order: index,
             idReviewer: reviewerId,
@@ -971,7 +988,6 @@ function ColumnsLayouts() {
         sampleSelectionMethodology: descricaoMetodologia,
         active: true,
         files: formData.files.map((f) => (f.path ? f.path : f)),
-        testConclusion: formData.conclusaoTeste,
         reviewers: formData.revisor.map((idR, idx) => ({
           order: idx,
           idReviewer: idR,
@@ -1151,7 +1167,6 @@ function ColumnsLayouts() {
           sampleSelectionMethodology: descricaoMetodologia,
           active: true,
           files: finalFilesPayload,
-          testConclusion: formData.conclusaoTeste,
           reviewers: formData.revisor.map((reviewerId, index) => ({
             order: index,
             idReviewer: reviewerId,
@@ -1208,20 +1223,13 @@ function ColumnsLayouts() {
     }
   };
 
-  const isTester = idUser === formData.testador;
-  const isReviewer = !isTester && formData.revisor.includes(idUser);
-  const status = faseTesteDados?.testPhaseStatus || formData.status;
   const canEditListagem = useMemo(
     () => isTester && (status === 1 || status === 2),
     [isTester, status]
   );
 
-  const creating = originalRequisicao === "Criar";
-  const editing = !creating; // originalRequisicao === "Editar"
-  const started = hasStartedByTester;
-
   const fieldPermissions = useMemo(() => {
-    // Se for criação, libera tudo
+    // Se for criação, libera os campos de cadastro
     if (creating) {
       return {
         nomeFaseTeste: true,
@@ -1239,9 +1247,8 @@ function ColumnsLayouts() {
         dataInicioTeste: true,
         dataFimTeste: true,
         dataConclusaoEfetiva: true,
-        conclusaoTeste: true,
         descricaoTestador: true,
-        descricaoRevisor: true,
+        descricaoRevisor: false,
       };
     }
 
@@ -1262,7 +1269,6 @@ function ColumnsLayouts() {
         dataInicioTeste: false,
         dataFimTeste: false,
         dataConclusaoEfetiva: false,
-        conclusaoTeste: false,
         descricaoTestador: false,
         descricaoRevisor: false,
       };
@@ -1276,7 +1282,7 @@ function ColumnsLayouts() {
       tipoTeste: editing && isTester && started && status < 3,
       amostra: editing && isTester && started && status < 3,
       metodologia: editing && isTester && started && status < 3,
-      deficiencia: editing && isTester && status < 3,
+      deficiencia: editing && isTester && started && status < 3,
 
       // nunca liberar a edição do testador no modo de edição
       testador: false,
@@ -1288,13 +1294,12 @@ function ColumnsLayouts() {
       dataInicioTeste: true,
       dataFimTeste: editing && isTester && started && status < 3,
       dataConclusaoEfetiva: true,
-      conclusaoTeste: editing && isTester && started && status < 3,
       descricaoTestador: editing && isTester && started && status < 3,
 
-      // só o revisor pode editar o próprio comentário quando em revisão
-      descricaoRevisor: editing && isReviewer && status === 3,
+      // só libera quando os botões REVISADO e RETORNAR aparecem
+      descricaoRevisor: showReviewerDecisionActions,
     };
-  }, [creating, editing, isTester, isReviewer, started, status]);
+  }, [creating, editing, isTester, started, status, showReviewerDecisionActions]);
 
   return (
     <>
@@ -1405,29 +1410,7 @@ function ColumnsLayouts() {
             </Stack>
           </Grid>
 
-          <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-            <Stack spacing={1}>
-              <InputLabel>DeficiÃªncia</InputLabel>
-              <Autocomplete
-                disabled={!fieldPermissions.deficiencia}
-                options={deficiencias}
-                getOptionLabel={(option) => option?.nome || ""}
-                value={
-                  deficiencias.find(
-                    (deficiencia) => deficiencia.id === formData.deficiencia
-                  ) || null
-                }
-                onChange={(event, newValue) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    deficiencia: newValue ? newValue.id : null,
-                  }));
-                }}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderInput={(params) => <TextField {...params} />}
-              />
-            </Stack>
-          </Grid>
+          
 
           <Grid item xs={6} sx={{ paddingBottom: 5 }}>
             <Stack spacing={1}>
@@ -1654,35 +1637,33 @@ function ColumnsLayouts() {
                 </Stack>
               </Grid>
 
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>Conclusão do teste *</InputLabel>
-                  <Autocomplete
-                    disabled={!fieldPermissions.conclusaoTeste}
-                    options={conclusaoTestes}
-                    getOptionLabel={(option) => option.nome}
-                    value={
-                      conclusaoTestes.find(
-                        (conclusaoTeste) =>
-                          conclusaoTeste.id === formData.conclusaoTeste
-                      ) || null
-                    }
-                    onChange={(event, newValue) => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        conclusaoTeste: newValue ? newValue.id : "",
-                      }));
-                    }}
-                    renderInput={(params) => (
-                      <TextField 
-                        {...params}
-                        error={!formData.conclusaoTeste && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3)}
-                        helperText={!formData.conclusaoTeste && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3) ? "Campo obrigatório para teste realizado" : ""}
-                      />
-                    )}
-                  />
-                </Stack>
-              </Grid>
+              {requisicao === "Editar" && (
+            <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+              <Stack spacing={1}>
+                <InputLabel>Deficiência</InputLabel>
+                <Autocomplete
+                  disabled={!fieldPermissions.deficiencia}
+                  options={deficiencias}
+                  getOptionLabel={(option) => option?.nome || ""}
+                  value={
+                    deficiencias.find(
+                      (deficiencia) => deficiencia.id === formData.deficiencia
+                    ) || null
+                  }
+                  onChange={(event, newValue) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      deficiencia: newValue ? newValue.id : null,
+                    }));
+                  }}
+                  isOptionEqualToValue={(option, value) =>
+                    option.id === value.id
+                  }
+                  renderInput={(params) => <TextField {...params} />}
+                />
+              </Stack>
+            </Grid>
+          )}
 
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>

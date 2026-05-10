@@ -190,7 +190,7 @@ function ColumnsLayouts() {
             ativo: Array.isArray(data.platforms)
               ? data.platforms.map((u) => u.idPlatform)
               : [],
-            processo: data.idProcesses || null,
+            processo: Array.isArray(data.idProcesses) ? data.idProcesses : [],
             tipoInformacao: data.idInformationType || null,
           }));
         } catch (err) {
@@ -228,16 +228,16 @@ function ColumnsLayouts() {
   };
 
  const handleProcessCreated = (newProcesso) => {
-    // 1. Adiciona à lista global
-    setProcessos((prevProcessos) => [...prevProcessos, newProcesso]);
+    const processoNormalizado = {
+      ...newProcesso,
+      idPlatforms: newProcesso.idPlatforms || [],
+    };
 
-    // 2. Se NÃO tiver ativos selecionados (Modo mostrar todos), seleciona automaticamente
-    if (formData.ativo.length === 0) {
-      setFormData((prev) => ({
-        ...prev,
-        processo: [...prev.processo, newProcesso.id],
-      }));
-    }
+    setProcessos((prevProcessos) => [...prevProcessos, processoNormalizado]);
+    setFormData((prev) => ({
+      ...prev,
+      processo: [...new Set([...prev.processo, newProcesso.id])],
+    }));
   };
 
 const handleSelectAllAtivos = (event, newValue) => {
@@ -290,49 +290,119 @@ const handleSelectAllAtivos = (event, newValue) => {
   };
 
  const handleSelectAllProcessos = (event, newValue) => {
-    // Verifica se clicou na opção "Selecionar todos"
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      
-      // Se já estiverem todos os filtrados selecionados, limpa a seleção
-      if (formData.processo.length === processosFiltrados.length) {
-        setFormData({ ...formData, processo: [] });
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
+
+    if (lastItem && lastItem.id === "all") {
+      const todosIds = processosSelecionaveis.map((processo) => processo.id);
+      const todosSelecionados =
+        todosIds.length > 0 &&
+        todosIds.every((id) => formData.processo.includes(id));
+
+      if (todosSelecionados) {
+        setFormData({
+          ...formData,
+          processo: formData.processo.filter((id) => !todosIds.includes(id)),
+        });
       } else {
-        // Caso contrário, seleciona APENAS os processos que estão na lista filtrada
-        const idsFiltrados = processosFiltrados.map((processo) => processo.id);
-        setFormData({ ...formData, processo: idsFiltrados });
+        const novaSelecao = new Set([...formData.processo, ...todosIds]);
+        setFormData({ ...formData, processo: Array.from(novaSelecao) });
       }
-    } else {
-      // Seleção individual normal
-      tratarMudancaInputGeral(
-        "processo",
-        newValue.map((item) => item.id)
-      );
+      return;
     }
+
+    if (lastItem && lastItem.id === "all_vinculados") {
+      const vinculadosIds = processosFiltrados.map((processo) => processo.id);
+      const todosVinculadosSelecionados =
+        vinculadosIds.length > 0 &&
+        vinculadosIds.every((id) => formData.processo.includes(id));
+
+      if (todosVinculadosSelecionados) {
+        setFormData({
+          ...formData,
+          processo: formData.processo.filter((id) => !vinculadosIds.includes(id)),
+        });
+      } else {
+        const novaSelecao = new Set([...formData.processo, ...vinculadosIds]);
+        setFormData({ ...formData, processo: Array.from(novaSelecao) });
+      }
+      return;
+    }
+
+    if (lastItem && lastItem.id === "all_outros") {
+      const outrosIds = processosOutrosDisponiveis.map((processo) => processo.id);
+      const todosOutrosSelecionados =
+        outrosIds.length > 0 &&
+        outrosIds.every((id) => formData.processo.includes(id));
+
+      if (todosOutrosSelecionados) {
+        setFormData({
+          ...formData,
+          processo: formData.processo.filter((id) => !outrosIds.includes(id)),
+        });
+      } else {
+        const novaSelecao = new Set([...formData.processo, ...outrosIds]);
+        setFormData({ ...formData, processo: Array.from(novaSelecao) });
+      }
+      return;
+    }
+
+    tratarMudancaInputGeral(
+      "processo",
+      newValue
+        .filter(
+          (item) =>
+            item.id !== "all" &&
+            item.id !== "all_vinculados" &&
+            item.id !== "all_outros",
+        )
+        .map((item) => item.id),
+    );
   };
 
-// Efeito para buscar e filtrar processos (Regra de Negócio: Apenas Active = true)
+  // Efeito para buscar e filtrar processos a partir dos Ativos selecionados.
   useEffect(() => {
     const atualizarProcessosPorAtivo = async () => {
-      
-      // 1. FILTRO GLOBAL: Remove qualquer processo inativo da jogada imediatamente.
-      // Isso garante que 'processosFiltrados' nunca contenha itens com active: false.
-      const processosAtivosGlobais = processos.filter(p => p.active === true);
+      const processosAtivosGlobais = processos.filter((processo) => processo.active === true);
 
-      // CENÁRIO 1: Nenhum ativo selecionado -> Mostra TODOS os processos ATIVOS
       if (formData.ativo.length === 0) {
-        setProcessosFiltrados(processosAtivosGlobais); 
+        setProcessosFiltrados(processosAtivosGlobais);
         setProcessoOrigemMap({});
         return;
       }
 
-      // CENÁRIO 2: Ativos selecionados -> Busca na API e cruza com a lista de ativos
       const novoMapaOrigem = {};
       const idsProcessosPermitidos = new Set();
+      const ativosSelecionadosSet = new Set(formData.ativo);
+
+      const registrarProcessoVinculado = (idProcesso, nomeAtivo) => {
+        if (!idProcesso) return;
+        idsProcessosPermitidos.add(idProcesso);
+
+        if (!novoMapaOrigem[idProcesso]) {
+          novoMapaOrigem[idProcesso] = [];
+        }
+
+        if (nomeAtivo && !novoMapaOrigem[idProcesso].includes(nomeAtivo)) {
+          novoMapaOrigem[idProcesso].push(nomeAtivo);
+        }
+      };
+
+      const getIdAtivo = (ativo) => {
+        if (!ativo) return null;
+        if (typeof ativo !== "object") return ativo;
+        return ativo.idPlatform || ativo.id || null;
+      };
+
+      const getIdProcesso = (processo) => {
+        if (!processo) return null;
+        if (typeof processo !== "object") return processo;
+        return processo.idProcess || processo.id || null;
+      };
 
       const promises = formData.ativo.map((ativoId) =>
         axios.get(`https://api.egrc.homologacao.com.br/api/v1/actives/${ativoId}`, {
           headers: { Authorization: `Bearer ${token}` },
-        })
+        }),
       );
 
       try {
@@ -341,35 +411,46 @@ const handleSelectAllAtivos = (event, newValue) => {
         results.forEach((response) => {
           const dadosAtivo = response.data;
           const nomeAtivo = dadosAtivo.name;
-          const processosDoAtivo = dadosAtivo.processes || [];
+          const processosDoAtivo = dadosAtivo.processes || dadosAtivo.idProcesses || [];
 
-          processosDoAtivo.forEach((proc) => {
-            const idProc = proc.idProcess;
-            idsProcessosPermitidos.add(idProc);
+          processosDoAtivo.forEach((processo) => {
+            registrarProcessoVinculado(getIdProcesso(processo), nomeAtivo);
+          });
+        });
 
-            if (!novoMapaOrigem[idProc]) {
-              novoMapaOrigem[idProc] = [];
-            }
-            if (!novoMapaOrigem[idProc].includes(nomeAtivo)) {
-              novoMapaOrigem[idProc].push(nomeAtivo);
+        processosAtivosGlobais.forEach((processo) => {
+          const vinculosDoProcesso = [
+            ...(Array.isArray(processo.idPlatforms) ? processo.idPlatforms : []),
+            ...(Array.isArray(processo.platforms) ? processo.platforms : []),
+            ...(Array.isArray(processo.actives) ? processo.actives : []),
+          ];
+
+          vinculosDoProcesso.forEach((ativoVinculado) => {
+            const idAtivo = getIdAtivo(ativoVinculado);
+
+            if (ativosSelecionadosSet.has(idAtivo)) {
+              const ativoEncontrado = ativos.find((ativo) => ativo.id === idAtivo);
+              registrarProcessoVinculado(processo.id, ativoEncontrado?.nome || ativoEncontrado?.name);
             }
           });
         });
 
-        // Cruza os IDs retornados pela API dos ativos com a nossa lista global de processos ATIVOS
-        const listaFiltrada = processosAtivosGlobais.filter((p) => idsProcessosPermitidos.has(p.id));
-        
+        const listaFiltrada = processosAtivosGlobais.filter((processo) =>
+          idsProcessosPermitidos.has(processo.id),
+        );
+
         setProcessosFiltrados(listaFiltrada);
         setProcessoOrigemMap(novoMapaOrigem);
-
       } catch (error) {
         console.error("Erro ao buscar detalhes dos ativos:", error);
-        enqueueSnackbar("Erro ao carregar processos dos ativos selecionados.", { variant: "error" });
+        enqueueSnackbar("Erro ao carregar processos dos ativos selecionados.", {
+          variant: "error",
+        });
       }
     };
 
     atualizarProcessosPorAtivo();
-  }, [formData.ativo, processos, token]);
+  }, [formData.ativo, processos, ativos, token]);
 
   const voltarParaCadastroMenu = () => {
     navigate(-1);
@@ -395,16 +476,40 @@ const handleSelectAllAtivos = (event, newValue) => {
 
 // Filtra apenas os ativos que estão com active: true para exibir na lista de opções
   const ativosAtivosDisponiveis = ativos.filter((ativo) => ativo.active);
+  const processosAtivosDisponiveis = processos.filter((processo) => processo.active);
+  const possuiAtivoSelecionado = formData.ativo.length > 0;
+  const processosVinculadosIds = new Set(processosFiltrados.map((processo) => processo.id));
+  const processosOutrosDisponiveis = possuiAtivoSelecionado
+    ? processosAtivosDisponiveis.filter((processo) => !processosVinculadosIds.has(processo.id))
+    : [];
+  const processosSelecionaveis = possuiAtivoSelecionado
+    ? [...processosFiltrados, ...processosOutrosDisponiveis]
+    : processosAtivosDisponiveis;
+  const processosAutocompleteOptions = possuiAtivoSelecionado
+    ? [
+        ...(processosFiltrados.length > 0
+          ? [{ id: "all_vinculados", nome: "Selecionar vinculados" }, ...processosFiltrados]
+          : []),
+        ...(processosOutrosDisponiveis.length > 0
+          ? [{ id: "all_outros", nome: "Selecionar outros" }, ...processosOutrosDisponiveis]
+          : []),
+      ]
+    : [{ id: "all", nome: "Selecionar todos" }, ...processosAtivosDisponiveis];
   
   // Verifica se todos os ativos DISPONÍVEIS estão selecionados (para o checkbox do Select All)
   // Nota: Isso ignora se há ativos inativos selecionados no cálculo do "All"
   const allSelectedAtivos = 
     ativosAtivosDisponiveis.length > 0 && 
     ativosAtivosDisponiveis.every(a => formData.ativo.includes(a.id));
-// Verifica se todos os processos DISPONÍVEIS (Filtrados/Ativos) estão selecionados
   const allSelectedProcessos = 
-    processosFiltrados.length > 0 && 
-    processosFiltrados.every(p => formData.processo.includes(p.id));
+    processosSelecionaveis.length > 0 && 
+    processosSelecionaveis.every(p => formData.processo.includes(p.id));
+  const allSelectedProcessosVinculados =
+    processosFiltrados.length > 0 &&
+    processosFiltrados.every((p) => formData.processo.includes(p.id));
+  const allSelectedProcessosOutros =
+    processosOutrosDisponiveis.length > 0 &&
+    processosOutrosDisponiveis.every((p) => formData.processo.includes(p.id));
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
   const tratarSubmit = async () => {
@@ -729,15 +834,29 @@ const handleSelectAllAtivos = (event, newValue) => {
                         minWidth: "20px",
                       }}
                       onProcessCreated={handleProcessCreated}
+                      ativosSelecionados={formData.ativo.map(
+                        (id) => ativos.find((ativo) => ativo.id === id) || { id },
+                      )}
                     />
                   </InputLabel>
                   <Autocomplete
                 multiple
                 disableCloseOnSelect
-                options={
-                  processosFiltrados.length > 0
-                    ? [{ id: "all", nome: "Selecionar todos" }, ...processosFiltrados]
-                    : []
+                options={processosAutocompleteOptions}
+                groupBy={
+                  possuiAtivoSelecionado
+                    ? (option) => {
+                        if (option.id === "all_vinculados" || processosVinculadosIds.has(option.id)) {
+                          return "Vinculados ao(s) Ativo(s) Selecionado(s)";
+                        }
+
+                        if (option.id === "all_outros" || !processosVinculadosIds.has(option.id)) {
+                          return "Outros Processos (Sem Vinculação)";
+                        }
+
+                        return "";
+                      }
+                    : undefined
                 }
                 noOptionsText="Nenhum processo encontrado"
                 getOptionLabel={(option) => option.nome}
@@ -784,14 +903,18 @@ const handleSelectAllAtivos = (event, newValue) => {
                             checked={
                               option.id === "all"
                                 ? allSelectedProcessos
-                                : selected
+                                : option.id === "all_vinculados"
+                                  ? allSelectedProcessosVinculados
+                                  : option.id === "all_outros"
+                                    ? allSelectedProcessosOutros
+                                    : selected
                             }
                           />
                         </Grid>
                         <Grid item xs>
                           <Typography variant="body1">{option.nome}</Typography>
                           
-                          {option.id !== "all" && origens && (
+                          {option.id !== "all" && option.id !== "all_vinculados" && option.id !== "all_outros" && origens && (
                             <Typography
                               variant="caption"
                               display="block"

@@ -6,6 +6,8 @@ export const TEST_STATUS_META = {
   5: { label: "Revisado", color: "#7c3aed" },
 };
 
+const COMPLETED_TEST_STATUS = 4;
+
 export const TEST_CONCLUSION_META = {
   1: { label: "Efetivo", color: "#16a34a" },
   2: { label: "Inefetivo", color: "#dc2626" },
@@ -15,6 +17,8 @@ export const getTestDate = (test) => test?.baseDate || test?.date || null;
 
 export const getCompletionDate = (test) =>
   test?.completionDate || test?.completitionDate || null;
+
+export const getSummaryDate = (test) => getCompletionDate(test) || getTestDate(test);
 
 export const getCompletionDescription = (test) => {
   const value = test?.descriptionTestCompletion;
@@ -82,13 +86,14 @@ export const buildLatestCompletedTestSummary = (tests = []) => {
     .filter(
       (test) =>
         test?.active !== false &&
-        (Boolean(getCompletionDate(test)) ||
+        getTestStatusValue(test) === COMPLETED_TEST_STATUS &&
+        (Boolean(getSummaryDate(test)) ||
           getTestConclusionValue(test) !== null),
     )
     .sort((testA, testB) => {
       const completionDateDiff =
-        getDateTimestamp(getCompletionDate(testB)) -
-        getDateTimestamp(getCompletionDate(testA));
+        getDateTimestamp(getSummaryDate(testB)) -
+        getDateTimestamp(getSummaryDate(testA));
 
       if (completionDateDiff !== 0) return completionDateDiff;
 
@@ -101,12 +106,10 @@ export const buildLatestCompletedTestSummary = (tests = []) => {
   return {
     conclusionLabel: getTestConclusionLabel(latestCompletedTest),
     conclusionColor: getTestConclusionMeta(latestCompletedTest)?.color,
-    completionDateLabel: formatTestDate(getCompletionDate(latestCompletedTest)),
+    completionDateLabel: formatTestDate(getSummaryDate(latestCompletedTest)),
     completionDescription:
       getCompletionDescription(latestCompletedTest) !== "-"
         ? getCompletionDescription(latestCompletedTest)
         : null,
-    statusLabel: getTestStatusLabel(latestCompletedTest),
-    statusColor: getTestStatusMeta(latestCompletedTest).color,
   };
 };

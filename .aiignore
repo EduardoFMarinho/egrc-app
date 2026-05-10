@@ -1,0 +1,45 @@
+# Ignore node dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Ignore build and production directories
+/build
+/dist
+/.next
+
+# Ignore testing and coverage
+/coverage
+
+# Ignore IDE and editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+
+# Ignore log files
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ignore environment variables and sensitive keys
+.env
+.env.*
+*.key
+*.pem
+*.keystore
+*.jks
+
+# Ignore system files
+.DS_Store
+
+# TypeScript and cache files
+*.tsbuildinfo
+.npm
+.eslintcache
+.stylelintcache

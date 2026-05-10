@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Tooltip,
   Chip,
 } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers";
@@ -38,6 +39,7 @@ import InputMask from "react-input-mask";
 import { useToken } from "../../../api/TokenContext";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import {
   areAllVisibleOptionsSelected,
   buildActiveOptionsWithSelected,
@@ -81,15 +83,12 @@ function ColumnsLayouts() {
   const [naturezasJuridicas, setNaturezasJuridicas] = useState([]);
   const [regimesTributacao, setRegimesTributacao] = useState([]);
 
-  // --- NOVOS ESTADOS PARA FILTRO BIDIRECIONAL (Processo <-> Conta) ---
-  const [filtroAtivo, setFiltroAtivo] = useState(null); // 'processo' ou 'conta'
-  const [processosFiltrados, setProcessosFiltrados] = useState([]);
+  // --- Processo é o filtro pai de Conta ---
   const [contasFiltradas, setContasFiltradas] = useState([]);
-  const [processoOrigemMap, setProcessoOrigemMap] = useState({});
   const [contaOrigemMap, setContaOrigemMap] = useState({});
-  const [warningDialogOpen, setWarningDialogOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null); // Guarda o que deve ser feito ao confirmar
-  // -------------------------------------------------------------------
+  const [openProcessDialog, setOpenProcessDialog] = useState(false);
+  const [pendingProcessChange, setPendingProcessChange] = useState([]);
+  // ---------------------------------------
 
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
@@ -143,10 +142,6 @@ function ColumnsLayouts() {
           setFormData((prev) => {
             const idProcs = data.idProcesses || [];
             const idContas = data.idLedgerAccounts || [];
-
-            // Define quem assume o filtro na edição
-            if (idProcs.length > 0) setFiltroAtivo("processo");
-            else if (idContas.length > 0) setFiltroAtivo("conta");
 
             return {
               ...prev,
@@ -207,7 +202,7 @@ function ColumnsLayouts() {
       setOrgaosReguladores,
     );
     fetchData(
-      `${process.env.REACT_APP_API_URL}companies/classifications`,
+      `${process.env.REACT_APP_API_URL}controls/classifications/2`,
       setClassificacoes,
     );
     fetchData(
@@ -239,10 +234,15 @@ function ColumnsLayouts() {
   };
 
   const handleAccountCreated = (newConta) => {
-    setContas((prevConta) => [...prevConta, newConta]); // Adiciona o novo processo à lista
+    const contaNormalizada = {
+      ...newConta,
+      idProcesses: newConta.idProcesses || [],
+    };
+
+    setContas((prevConta) => [...prevConta, contaNormalizada]);
     setFormData((prev) => ({
       ...prev,
-      conta: [...prev.conta, newConta.id], // Seleciona o novo processo automaticamente
+      conta: [...prev.conta, newConta.id],
     }));
   };
 
@@ -276,6 +276,22 @@ function ColumnsLayouts() {
     } catch (error) {
       console.error("Erro ao buscar dados:", error);
     }
+  };
+
+  const isOrphan = (item, keys) => {
+    let hasField = false;
+
+    for (const key of keys) {
+      if (item[key] !== undefined) {
+        hasField = true;
+
+        if (Array.isArray(item[key]) && item[key].length > 0) {
+          return false;
+        }
+      }
+    }
+
+    return hasField;
   };
 
   // Função para validar o CNPJ
@@ -408,103 +424,87 @@ function ColumnsLayouts() {
     }
   };
 
-  // Efeito principal do Filtro Bidirecional
-  // Efeito principal do Filtro Bidirecional
   useEffect(() => {
-    const atualizarFiltrosBidirecionais = async () => {
-      if (filtroAtivo === "processo" && formData.processo.length > 0) {
-        // PROCESSO É O PAI: Filtra Contas
+    const atualizarContasPorProcesso = async () => {
+      if (!formData.processo || formData.processo.length === 0) {
+        // Sem processo selecionado, não existe vínculo de referência para agrupar.
+        // Mantém todas as contas disponíveis, mas sem marcá-las como vinculadas.
+        setContasFiltradas([]);
+        setContaOrigemMap({});
+        return;
+      }
+
+      try {
         const novoMapaConta = {};
         const idsContaPermitidos = new Set();
+        const processosSelecionadosIds = new Set(formData.processo);
 
         const promises = formData.processo.map((id) =>
           axios.get(`${process.env.REACT_APP_API_URL}processes/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         );
-        try {
-          const results = await Promise.all(promises);
-          results.forEach((res) => {
-            const nomeProc = res.data.name;
-            // AJUSTE: Usando idLedgerAccounts conforme retorno da API
-            const ledgers = res.data.idLedgerAccounts || [];
 
-            ledgers.forEach((l) => {
-              // Lida com o retorno, seja um array de objetos ou array direto de IDs
-              const idConta =
-                typeof l === "object" ? l.idLedgerAccount || l.id : l;
+        const results = await Promise.all(promises);
+        results.forEach((res) => {
+          const nomeProc = res.data.name;
+          const ledgerAccounts =
+            res.data.ledgerAccounts || res.data.idLedgerAccounts || [];
 
-              if (idConta) {
-                idsContaPermitidos.add(idConta);
-                if (!novoMapaConta[idConta]) novoMapaConta[idConta] = [];
-                if (!novoMapaConta[idConta].includes(nomeProc))
-                  novoMapaConta[idConta].push(nomeProc);
+          ledgerAccounts.forEach((ledger) => {
+            const idConta =
+              typeof ledger === "object"
+                ? ledger.idLedgerAccount || ledger.id
+                : ledger;
+
+            if (idConta) {
+              idsContaPermitidos.add(idConta);
+              if (!novoMapaConta[idConta]) novoMapaConta[idConta] = [];
+              if (!novoMapaConta[idConta].includes(nomeProc)) {
+                novoMapaConta[idConta].push(nomeProc);
               }
-            });
+            }
           });
-          setContasFiltradas(
-            contas.filter((c) => idsContaPermitidos.has(c.id)),
-          );
-          setContaOrigemMap(novoMapaConta);
-        } catch (e) {
-          console.error("Erro ao buscar dependências de contas:", e);
-        }
-      } else if (filtroAtivo === "conta" && formData.conta.length > 0) {
-        // CONTA É O PAI: Filtra Processos
-        const novoMapaProc = {};
-        const idsProcPermitidos = new Set();
+        });
 
-        const promises = formData.conta.map((id) =>
-          axios.get(`${process.env.REACT_APP_API_URL}ledger-accounts/${id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+        const isLinkedLocally = (item) => {
+          const hasInIdProcesses =
+            Array.isArray(item.idProcesses) &&
+            item.idProcesses.some((p) =>
+              processosSelecionadosIds.has(
+                typeof p === "object" ? p.idProcess || p.id : p,
+              ),
+            );
+
+          const hasInProcesses =
+            Array.isArray(item.processes) &&
+            item.processes.some((p) =>
+              processosSelecionadosIds.has(
+                typeof p === "object" ? p.idProcess || p.id : p,
+              ),
+            );
+
+          return hasInIdProcesses || hasInProcesses;
+        };
+
+        const novasContasFiltradas = contas.filter(
+          (conta) =>
+            idsContaPermitidos.has(conta.id) ||
+            isOrphan(conta, ["processes", "idProcesses"]) ||
+            isLinkedLocally(conta),
         );
-        try {
-          const results = await Promise.all(promises);
-          results.forEach((res) => {
-            const nomeConta = res.data.name;
-            // AJUSTE: Usando idProcesses conforme retorno da API
-            const procs = res.data.idProcesses || [];
 
-            procs.forEach((p) => {
-              // Lida com o retorno, seja um array de objetos ou array direto de IDs
-              const idProc = typeof p === "object" ? p.idProcess || p.id : p;
-
-              if (idProc) {
-                idsProcPermitidos.add(idProc);
-                if (!novoMapaProc[idProc]) novoMapaProc[idProc] = [];
-                if (!novoMapaProc[idProc].includes(nomeConta))
-                  novoMapaProc[idProc].push(nomeConta);
-              }
-            });
-          });
-          setProcessosFiltrados(
-            processos.filter((p) => idsProcPermitidos.has(p.id)),
-          );
-          setProcessoOrigemMap(novoMapaProc);
-        } catch (e) {
-          console.error("Erro ao buscar dependências de processos:", e);
-        }
-      } else {
-        // NENHUM ATIVO: Mostra tudo normal
-        setProcessosFiltrados(processos);
-        setContasFiltradas(contas);
-        setProcessoOrigemMap({});
-        setContaOrigemMap({});
+        setContasFiltradas(novasContasFiltradas);
+        setContaOrigemMap(novoMapaConta);
+      } catch (error) {
+        console.error("Erro ao buscar contas vinculadas ao processo:", error);
       }
     };
 
-    if (processos.length > 0 || contas.length > 0) {
-      atualizarFiltrosBidirecionais();
+    if (contas.length > 0 || processos.length > 0) {
+      atualizarContasPorProcesso();
     }
-  }, [
-    formData.processo,
-    formData.conta,
-    filtroAtivo,
-    processos,
-    contas,
-    token,
-  ]);
+  }, [formData.processo, contas, processos, token]);
 
   const handleSelectAll = (event, newValue) => {
     if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
@@ -535,85 +535,109 @@ function ColumnsLayouts() {
   };
 
   const handleSelectAll2 = (event, newValue) => {
-    // Processos
     let novosIds = [];
+
     if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      if (formData.processo.length === processosFiltrados.length) novosIds = [];
-      else novosIds = processosFiltrados.map((p) => p.id);
+      if (formData.processo.length === processos.length) novosIds = [];
+      else novosIds = processos.map((p) => p.id);
     } else {
-      novosIds = newValue.map((item) => item.id);
+      novosIds = newValue
+        .filter((item) => item.id !== "all")
+        .map((item) => item.id);
     }
 
-    if (filtroAtivo === "conta") {
-      tratarMudancaInputGeral("processo", novosIds);
-      if (novosIds.length === 0 && formData.conta.length === 0)
-        setFiltroAtivo(null);
-    } else {
-      if (
-        formData.processo.length === 0 &&
-        novosIds.length > 0 &&
-        formData.conta.length > 0
-      ) {
-        setPendingAction({ type: "processo", ids: novosIds });
-        setWarningDialogOpen(true);
-        return;
-      }
-      tratarMudancaInputGeral("processo", novosIds);
-      if (novosIds.length > 0) setFiltroAtivo("processo");
-      else if (formData.conta.length > 0) setFiltroAtivo("conta");
-      else setFiltroAtivo(null);
+    const houveMudanca =
+      novosIds.length !== formData.processo.length ||
+      novosIds.some((id) => !formData.processo.includes(id));
+
+    if (houveMudanca && formData.conta.length > 0) {
+      setPendingProcessChange(novosIds);
+      setOpenProcessDialog(true);
+      return;
     }
+
+    tratarMudancaInputGeral("processo", novosIds);
   };
 
   const handleSelectAllConta = (event, newValue) => {
-    // Contas
-    let novosIds = [];
-    if (newValue.length > 0 && newValue[newValue.length - 1].id === "all") {
-      if (formData.conta.length === contasFiltradas.length) novosIds = [];
-      else novosIds = contasFiltradas.map((c) => c.id);
-    } else {
-      novosIds = newValue.map((item) => item.id);
-    }
+    const lastItem = newValue.length > 0 ? newValue[newValue.length - 1] : null;
 
-    if (filtroAtivo === "processo") {
-      tratarMudancaInputGeral("conta", novosIds);
-      if (novosIds.length === 0 && formData.processo.length === 0)
-        setFiltroAtivo(null);
-    } else {
-      if (
-        formData.conta.length === 0 &&
-        novosIds.length > 0 &&
-        formData.processo.length > 0
-      ) {
-        setPendingAction({ type: "conta", ids: novosIds });
-        setWarningDialogOpen(true);
-        return;
+    if (lastItem && lastItem.id === "all") {
+      const allContasSelected =
+        contas.length > 0 && contas.every((idConta) =>
+          formData.conta.includes(idConta.id),
+        );
+
+      if (allContasSelected) {
+        setFormData({ ...formData, conta: [] });
+      } else {
+        setFormData({ ...formData, conta: contas.map((conta) => conta.id) });
       }
-      tratarMudancaInputGeral("conta", novosIds);
-      if (novosIds.length > 0) setFiltroAtivo("conta");
-      else if (formData.processo.length > 0) setFiltroAtivo("processo");
-      else setFiltroAtivo(null);
+    } else if (lastItem && lastItem.id === "all_vinculadas") {
+      const vinculadasIds = contasFiltradas.map((c) => c.id);
+      const allVinculadasSelected =
+        vinculadasIds.length > 0 &&
+        vinculadasIds.every((id) => formData.conta.includes(id));
+
+      if (allVinculadasSelected) {
+        setFormData({
+          ...formData,
+          conta: formData.conta.filter((id) => !vinculadasIds.includes(id)),
+        });
+      } else {
+        const newSelection = new Set([...formData.conta, ...vinculadasIds]);
+        setFormData({ ...formData, conta: Array.from(newSelection) });
+      }
+    } else if (lastItem && lastItem.id === "all_outras") {
+      const vinculadasIds = new Set(contasFiltradas.map((c) => c.id));
+      const outrasIds = contas
+        .map((c) => c.id)
+        .filter((id) => !vinculadasIds.has(id));
+      const allOutrasSelected =
+        outrasIds.length > 0 &&
+        outrasIds.every((id) => formData.conta.includes(id));
+
+      if (allOutrasSelected) {
+        setFormData({
+          ...formData,
+          conta: formData.conta.filter((id) => !outrasIds.includes(id)),
+        });
+      } else {
+        const newSelection = new Set([...formData.conta, ...outrasIds]);
+        setFormData({ ...formData, conta: Array.from(newSelection) });
+      }
+    } else {
+      tratarMudancaInputGeral(
+        "conta",
+        newValue
+          .filter(
+            (item) =>
+              item.id !== "all" &&
+              item.id !== "all_vinculadas" &&
+              item.id !== "all_outras",
+          )
+          .map((item) => item.id),
+      );
     }
   };
 
-  const confirmarMudancaFiltro = () => {
-    if (pendingAction.type === "processo") {
-      setFormData((prev) => ({
-        ...prev,
-        processo: pendingAction.ids,
-        conta: [],
-      }));
-      setFiltroAtivo("processo");
-    } else if (pendingAction.type === "conta") {
-      setFormData((prev) => ({
-        ...prev,
-        conta: pendingAction.ids,
-        processo: [],
-      }));
-      setFiltroAtivo("conta");
-    }
-    setWarningDialogOpen(false);
-    setPendingAction(null);
+  const trocarProcessoLimpar = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange,
+      conta: [],
+    }));
+    setOpenProcessDialog(false);
+    setPendingProcessChange([]);
+  };
+
+  const trocarProcessoManter = () => {
+    setFormData((prev) => ({
+      ...prev,
+      processo: pendingProcessChange,
+    }));
+    setOpenProcessDialog(false);
+    setPendingProcessChange([]);
   };
 
   // Função para lidar com seleção múltipla de órgãos reguladores
@@ -715,11 +739,7 @@ function ColumnsLayouts() {
     orgaosReguladores.length > 0;
 
   const allSelected2 =
-    formData.processo.length === processosFiltrados.length &&
-    processosFiltrados.length > 0;
-  const allSelectedContas =
-    formData.conta.length === contasFiltradas.length &&
-    contasFiltradas.length > 0;
+    formData.processo.length === processos.length && processos.length > 0;
 
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
@@ -1253,14 +1273,10 @@ function ColumnsLayouts() {
                     multiple
                     disableCloseOnSelect
                     options={
-                      processosFiltrados.length > 0
-                        ? [
-                            { id: "all", nome: "Selecionar todas" },
-                            ...processosFiltrados,
-                          ]
+                      processos.length > 0
+                        ? [{ id: "all", nome: "Selecionar todas" }, ...processos]
                         : []
                     }
-                    // Adicione também a propriedade abaixo de options:
                     noOptionsText="Nenhum processo encontrado"
                     getOptionLabel={(option) => option.nome || ""}
                     value={formData.processo
@@ -1272,41 +1288,22 @@ function ColumnsLayouts() {
                       option.id === value.id
                     }
                     onChange={handleSelectAll2}
-                    renderOption={(props, option, { selected }) => {
-                      const origens = processoOrigemMap[option.id]
-                        ? processoOrigemMap[option.id].join(", ")
-                        : "";
-                      return (
-                        <li {...props}>
-                          <Grid container alignItems="center">
-                            <Grid item>
-                              <Checkbox
-                                checked={
-                                  option.id === "all" ? allSelected2 : selected
-                                }
-                              />
-                            </Grid>
-                            <Grid item xs>
-                              <Typography variant="body1">
-                                {option.nome}
-                              </Typography>
-                              {option.id !== "all" && origens && (
-                                <Typography
-                                  variant="caption"
-                                  display="block"
-                                  sx={{
-                                    color: "text.secondary",
-                                    fontSize: "0.75rem",
-                                  }}
-                                >
-                                  Conta(s): {origens}
-                                </Typography>
-                              )}
-                            </Grid>
+                    renderOption={(props, option, { selected }) => (
+                      <li {...props}>
+                        <Grid container alignItems="center">
+                          <Grid item>
+                            <Checkbox
+                              checked={
+                                option.id === "all" ? allSelected2 : selected
+                              }
+                            />
                           </Grid>
-                        </li>
-                      );
-                    }}
+                          <Grid item xs>
+                            {option.nome}
+                          </Grid>
+                        </Grid>
+                      </li>
+                    )}
                     renderInput={(params) => (
                       <TextField
                         {...params}
@@ -1323,14 +1320,25 @@ function ColumnsLayouts() {
 
               <Grid item xs={6} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
-                  <InputLabel>
+                  <InputLabel sx={{ display: "flex", alignItems: "center" }}>
                     Conta{" "}
+                    <Tooltip
+                      title="O preenchimento deste campo e seu cadastro rápido são vinculados ao(s) processo(s) selecionado(s)."
+                      arrow
+                    >
+                      <InfoOutlinedIcon
+                        sx={{ fontSize: 16, ml: 0.5, color: "text.secondary" }}
+                      />
+                    </Tooltip>
                     <DrawerConta
                       buttonSx={{
                         marginLeft: 1.5,
                         height: "20px",
                         minWidth: "20px",
                       }}
+                      processosSelecionados={processos.filter((p) =>
+                        formData.processo.includes(p.id),
+                      )}
                       onAccountCreated={handleAccountCreated}
                     />{" "}
                   </InputLabel>
@@ -1338,54 +1346,120 @@ function ColumnsLayouts() {
                     multiple
                     disableCloseOnSelect
                     options={
-                      contasFiltradas.length > 0
-                        ? [
-                            { id: "all", nome: "Selecionar todas" },
-                            ...contasFiltradas,
-                          ]
+                      contas.length > 0
+                        ? formData.processo.length > 0
+                          ? [
+                              ...(contasFiltradas.length > 0
+                                ? [
+                                    {
+                                      id: "all_vinculadas",
+                                      nome: "Selecionar todas vinculadas",
+                                    },
+                                  ]
+                                : []),
+                              {
+                                id: "all_outras",
+                                nome: "Selecionar todas sem vinculação",
+                              },
+                              ...contas,
+                            ].sort((a, b) => {
+                              const isAVinculada =
+                                a.id === "all_vinculadas" ||
+                                contasFiltradas.some((c) => c.id === a.id);
+                              const isBVinculada =
+                                b.id === "all_vinculadas" ||
+                                contasFiltradas.some((c) => c.id === b.id);
+
+                              if (isAVinculada && !isBVinculada) return -1;
+                              if (!isAVinculada && isBVinculada) return 1;
+
+                              if (a.id === "all_vinculadas") return -1;
+                              if (b.id === "all_vinculadas") return 1;
+                              if (a.id === "all_outras") return -1;
+                              if (b.id === "all_outras") return 1;
+
+                              return 0;
+                            })
+                          : [{ id: "all", nome: "Selecionar todas" }, ...contas]
                         : []
+                    }
+                    groupBy={
+                      formData.processo.length > 0
+                        ? (option) => {
+                            const isVinculada =
+                              option.id === "all_vinculadas" ||
+                              contasFiltradas.some((c) => c.id === option.id);
+                            return isVinculada
+                              ? "Vinculadas ao(s) Processo(s) Selecionado(s)"
+                              : "Outras Contas (Sem Vinculação)";
+                          }
+                        : undefined
                     }
                     noOptionsText="Nenhuma conta encontrada"
                     getOptionLabel={(option) => option.nome || ""}
-                    value={formData.conta
-                      .map((id) => contas.find((conta) => conta.id === id))
-                      .filter(Boolean)}
+                    value={formData.conta.map(
+                      (id) => contas.find((conta) => conta.id === id) || id,
+                    )}
                     isOptionEqualToValue={(option, value) =>
                       option.id === value.id
                     }
                     onChange={handleSelectAllConta}
                     renderOption={(props, option, { selected }) => {
+                      let isChecked = selected;
                       const origens = contaOrigemMap[option.id]
                         ? contaOrigemMap[option.id].join(", ")
                         : "";
+
+                      if (option.id === "all") {
+                        isChecked =
+                          contas.length > 0 &&
+                          contas.every((conta) =>
+                            formData.conta.includes(conta.id),
+                          );
+                      } else if (option.id === "all_vinculadas") {
+                        const vinculadasIds = contasFiltradas.map((c) => c.id);
+                        isChecked =
+                          vinculadasIds.length > 0 &&
+                          vinculadasIds.every((id) =>
+                            formData.conta.includes(id),
+                          );
+                      } else if (option.id === "all_outras") {
+                        const vinculadasIds = new Set(
+                          contasFiltradas.map((c) => c.id),
+                        );
+                        const outrasIds = contas
+                          .map((c) => c.id)
+                          .filter((id) => !vinculadasIds.has(id));
+                        isChecked =
+                          outrasIds.length > 0 &&
+                          outrasIds.every((id) => formData.conta.includes(id));
+                      }
+
                       return (
                         <li {...props}>
                           <Grid container alignItems="center">
                             <Grid item>
-                              <Checkbox
-                                checked={
-                                  option.id === "all"
-                                    ? allSelectedContas
-                                    : selected
-                                }
-                              />
+                              <Checkbox checked={isChecked} />
                             </Grid>
                             <Grid item xs>
                               <Typography variant="body1">
                                 {option.nome}
                               </Typography>
-                              {option.id !== "all" && origens && (
-                                <Typography
-                                  variant="caption"
-                                  display="block"
-                                  sx={{
-                                    color: "text.secondary",
-                                    fontSize: "0.75rem",
-                                  }}
-                                >
-                                  Processo(s): {origens}
-                                </Typography>
-                              )}
+                              {option.id !== "all" &&
+                                option.id !== "all_vinculadas" &&
+                                option.id !== "all_outras" &&
+                                origens && (
+                                  <Typography
+                                    variant="caption"
+                                    display="block"
+                                    sx={{
+                                      color: "text.secondary",
+                                      fontSize: "0.75rem",
+                                    }}
+                                  >
+                                    Processo(s): {origens}
+                                  </Typography>
+                                )}
                             </Grid>
                           </Grid>
                         </li>
@@ -1575,44 +1649,34 @@ function ColumnsLayouts() {
             </Button>
           </DialogActions>
         </Dialog>
-        {/* Dialog de Aviso de Filtro Bidirecional */}
         <Dialog
-          open={warningDialogOpen}
-          onClose={() => setWarningDialogOpen(false)}
+          open={openProcessDialog}
+          onClose={() => setOpenProcessDialog(false)}
+          maxWidth="sm"
+          fullWidth
         >
           <DialogTitle sx={{ fontWeight: 600 }}>
-            {"Alteração de filtro"}
+            Alteração de Processo
           </DialogTitle>
-          <DialogContent>
+          <DialogContent dividers>
             <DialogContentText>
-              Ao iniciar a seleção de{" "}
-              {pendingAction?.type === "processo" ? "Processos" : "Contas"}, a
-              lista de{" "}
-              {pendingAction?.type === "processo" ? "Contas" : "Processos"} será
-              filtrada para exibir apenas correspondências válidas.
-              <br />
-              <br />
-              <strong>
-                Os itens de{" "}
-                {pendingAction?.type === "processo" ? "Conta" : "Processo"}{" "}
-                selecionados anteriormente serão removidos.
-              </strong>
-              <br />
-              <br />
-              Deseja continuar?
+              Deseja manter as contas selecionadas?
             </DialogContentText>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setWarningDialogOpen(false)} color="primary">
-              Cancelar
+          <DialogActions sx={{ p: 2, justifyContent: "center", gap: 2 }}>
+            <Button
+              onClick={trocarProcessoLimpar}
+              color="error"
+              variant="outlined"
+            >
+              Limpar Contas
             </Button>
             <Button
-              onClick={confirmarMudancaFiltro}
-              color="error"
+              onClick={trocarProcessoManter}
+              color="primary"
               variant="contained"
-              autoFocus
             >
-              Limpar Seleções
+              Manter Contas
             </Button>
           </DialogActions>
         </Dialog>

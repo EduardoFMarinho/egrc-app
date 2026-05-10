@@ -155,6 +155,9 @@ function ColumnsLayouts() {
     { id: 2, nome: "Média" },
     { id: 3, nome: "Alta" },
   ]);
+
+  const actionPlanId = normativaDados?.idActionPlan ?? dadosApi?.idActionPlan;
+
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
 
@@ -296,29 +299,29 @@ function ColumnsLayouts() {
 
   useEffect(() => {
     window.refreshPlanoDates = async () => {
-      if (dadosApi?.idActionPlan) {
-        try {
-          const stepsResponse = await fetch(
-            `${process.env.REACT_APP_API_URL}action-plans/${dadosApi.idActionPlan}/steps`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
+      if (!actionPlanId) return;
+
+      try {
+        const stepsResponse = await fetch(
+          `${process.env.REACT_APP_API_URL}action-plans/${actionPlanId}/steps`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
             },
-          );
-          if (stepsResponse.ok) {
-            const fetchedSteps = await stepsResponse.json();
-            setSteps(fetchedSteps);
-          }
-        } catch (err) {
-          console.error("Erro ao recarregar steps do plano:", err.message);
+          },
+        );
+        if (stepsResponse.ok) {
+          const fetchedSteps = await stepsResponse.json();
+          setSteps(fetchedSteps);
         }
+      } catch (err) {
+        console.error("Erro ao recarregar steps do plano:", err.message);
       }
     };
     return () => {
       delete window.refreshPlanoDates;
     };
-  }, [dadosApi, token]);
+  }, [actionPlanId, token]);
 
   // Em caso de edição
   useEffect(() => {
@@ -714,6 +717,7 @@ function ColumnsLayouts() {
 
   const continuarEdicao = () => {
     setRequisicao("Editar");
+    setMensagemFeedback("editada");
     setSuccessDialogOpen(false);
   };
 
@@ -927,9 +931,23 @@ function ColumnsLayouts() {
         });
       }
 
-      if (requisicao === "Criar" && data.data.idActionPlan) {
-        // Atualiza o estado para modo de edição
-        setNormativaDados(data.data);
+      const planoCriado = data?.data || data;
+      const idPlanoCriado = planoCriado?.idActionPlan;
+
+      if (requisicao === "Criar" && idPlanoCriado) {
+        // Mantém a tela atual em modo de edição e disponibiliza o ID para a criação de steps.
+        setNormativaDados(planoCriado);
+        setRequisicao("Editar");
+        setMensagemFeedback("editada");
+        setSteps([]);
+        navigate(location.pathname, {
+          replace: true,
+          state: {
+            ...(location.state || {}),
+            dadosApi: planoCriado,
+            processoSelecionadoId: idPlanoCriado,
+          },
+        });
         setSuccessDialogOpen(true);
       } else {
         voltarParaCadastroMenu();
@@ -1499,7 +1517,7 @@ function ColumnsLayouts() {
                     <Typography variant="h6">Steps</Typography>
                   </AccordionSummary>
                   <AccordionDetails>
-                    <ListagemSteps />
+                    <ListagemSteps actionPlanId={actionPlanId} />
                   </AccordionDetails>
                 </Accordion>
               </Grid>
