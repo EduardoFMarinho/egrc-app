@@ -15,7 +15,6 @@ import ColumnsLayoutsDrawer from "./novoTesteDrawer";
 import { enqueueSnackbar } from "notistack";
 import AlertCustomerDelete from "../../../sections/apps/customer/AlertCustomerDelete";
 import { useGetResultado } from "../../../api/resultado";
-import { useLocation } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import emitter from "./eventEmitter";
 // project import
@@ -116,9 +115,16 @@ const EditableTextCell = ({
   column: { id },
   onCellValueChange,
 }) => {
-  const initialValue = getValue() || "";
+  const initialValue =
+    id === "amostra"
+      ? normalizeSampleName(getValue(), row.index)
+      : getValue() || "";
   const [value, setValue] = useState(initialValue);
   const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    setValue(initialValue);
+  }, [initialValue]);
 
   // Se não pode editar, renderiza só o texto
   if (!canEdit) {
@@ -135,8 +141,11 @@ const EditableTextCell = ({
 
   const finishEdit = () => {
     setIsEditing(false);
+    const nextValue =
+      id === "amostra" ? normalizeSampleName(value, row.index) : value;
+    setValue(nextValue);
     if (onCellValueChange) {
-      onCellValueChange(row.index, id, value);
+      onCellValueChange(row.index, id, nextValue);
     }
   };
 
@@ -344,7 +353,7 @@ function ReactTable({
         posicaoProcessual: false,
         area: false,
       }),
-    []
+    [],
   );
 
   let headers = [];
@@ -355,7 +364,7 @@ function ReactTable({
           ? columns.columnDef.header
           : "#",
       key: columns.columnDef.accessorKey,
-    })
+    }),
   );
 
   // Função para realizar a marcação de texto
@@ -430,7 +439,7 @@ function ReactTable({
                                   <Box>
                                     {flexRender(
                                       header.column.columnDef.header,
-                                      header.getContext()
+                                      header.getContext(),
                                     )}
                                   </Box>
                                   {header.column.getCanSort() && (
@@ -489,7 +498,7 @@ function ReactTable({
                                 >
                                   {flexRender(
                                     cell.column.columnDef.cell,
-                                    cell.getContext()
+                                    cell.getContext(),
                                   )}
                                 </TableCell>
                               ))}
@@ -683,18 +692,32 @@ ReactTable.propTypes = {
 
 // ==============================|| LISTAGEM ||============================== //
 
+function normalizeSampleName(sampleFromApi, index) {
+  const fallbackName = `Amostra ${index + 1}`;
+
+  if (sampleFromApi === undefined || sampleFromApi === null) {
+    return fallbackName;
+  }
+
+  const trimmedSample = String(sampleFromApi).trim();
+  if (!trimmedSample) return fallbackName;
+
+  if (/^Amostra\D*\d+\s*$/i.test(trimmedSample)) {
+    return fallbackName;
+  }
+
+  return trimmedSample;
+}
+
 const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
   const theme = useTheme();
-  const location = useLocation();
-  const { dadosApi } = location.state || {};
-  console.log(novoOrgao);
   const [formData, setFormData] = useState({
     refreshCount: 0,
   });
 
   const { acoesJudiciais, isLoading: testeLoading } = useGetResultado(
     formData,
-    novoOrgao
+    novoOrgao,
   );
 
   const [open, setOpen] = useState(false);
@@ -707,21 +730,20 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
   const [tableData, setTableData] = useState([]);
 
   const computedData = useMemo(() => {
+    const sampleCount = Number(amostras) || 0;
+
     // Se ainda não veio nada do endpoint, só crie linhas com o fallback
     if (!acoesJudiciais) {
-      return Array.from({ length: amostras }, (_, i) => ({
+      return Array.from({ length: sampleCount }, (_, i) => ({
         amostra: `Amostra ${i + 1}`,
       }));
     }
 
-    return Array.from({ length: amostras }, (_, i) => {
+    return Array.from({ length: sampleCount }, (_, i) => {
       // tenta ler o nome da sample da API
       const sampleFromApi = acoesJudiciais[0]?.results?.[i]?.sample;
       // usa fallback se não existir ou for string vazia
-      const sampleName =
-        sampleFromApi && sampleFromApi.trim() !== ""
-          ? sampleFromApi
-          : `Amostra ${i + 1}`;
+      const sampleName = normalizeSampleName(sampleFromApi, i);
 
       // monta a linha completa
       const row = { amostra: sampleName };
@@ -746,17 +768,20 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
     async (rowIndex, columnId, newValue) => {
       // guarda o estado atual da linha para usar no payload
       const currentRow = tableData[rowIndex];
+      const nextValue =
+        columnId === "amostra"
+          ? normalizeSampleName(newValue, rowIndex)
+          : newValue;
 
       // 1) atualiza imediatamente a UI
       setTableData((prev) => {
         const copy = [...prev];
-        copy[rowIndex] = { ...copy[rowIndex], [columnId]: newValue };
+        copy[rowIndex] = { ...copy[rowIndex], [columnId]: nextValue };
         return copy;
       });
 
       const token = localStorage.getItem("access_token");
-      const url =
-        `${process.env.REACT_APP_API_URL}projects/tests/phases/attributes/result`;
+      const url = `${process.env.REACT_APP_API_URL}projects/tests/phases/attributes/result`;
 
       const headers = {
         Authorization: `Bearer ${token}`,
@@ -764,7 +789,7 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
 
       // se for edição do NOME DA AMOSTRA, propaga para TODOS os atributos daquela linha
       if (columnId === "amostra") {
-        const newSample = newValue;
+        const newSample = nextValue;
         acoesJudiciais.forEach(async (attr) => {
           const meta = attr.results[rowIndex];
           const payload = {
@@ -787,8 +812,8 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
         const payload = {
           idAttribute: attr.idAttribute,
           idTestPhaseResult: meta.idTestPhaseResult,
-          sample: currentRow.amostra,
-          attributeResultSample: newValue,
+          sample: normalizeSampleName(currentRow?.amostra, rowIndex),
+          attributeResultSample: nextValue,
         };
 
         try {
@@ -798,7 +823,7 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
         }
       }
     },
-    [acoesJudiciais, tableData]
+    [acoesJudiciais, tableData],
   );
 
   // dentro de ReactTable({ data, columns, canEdit, ... })
@@ -832,7 +857,7 @@ const ListagemResultado = ({ amostras, canEdit, novoOrgao }) => {
       },
       ...dynamicAttributeColumns,
     ],
-    [dynamicAttributeColumns, theme, handleCellValueChange, canEdit] // <-- adiciona canEdit
+    [dynamicAttributeColumns, theme, handleCellValueChange, canEdit], // <-- adiciona canEdit
   );
 
   const refreshOrgaos = () => {

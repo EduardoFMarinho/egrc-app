@@ -39,6 +39,12 @@ import {
   TablePagination,
 } from "../../../components/third-party/react-table";
 import { useGetTestesByProjeto } from "../../../api/testes";
+import {
+  formatTestDate,
+  getCompletionDate,
+  getTestConclusionLabel,
+  getTestDate,
+} from "../controles/testeResumoUtils";
 
 export const fuzzyFilter = (row, columnId, value) => {
   let cellValue = row.getValue(columnId);
@@ -65,7 +71,7 @@ function ReactTable({ data, columns, totalItems, isLoading, onCreateNovo }) {
   const isDarkMode = theme.palette.mode === "dark";
   const matchDownSM = useMediaQuery(theme.breakpoints.down("sm"));
   const tableRef = useRef(null);
-  const [sorting, setSorting] = useState([{ id: "date", desc: true }]);
+  const [sorting, setSorting] = useState([{ id: "testDate", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
 
   const table = useReactTable({
@@ -385,22 +391,11 @@ const ListaProjetoTestes = ({ projectId }) => {
     projectId,
   );
 
-  const formatDate = (value) => {
-    if (!value) return "-";
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "-";
-
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-    }).format(date);
-  };
-
   const columns = useMemo(
     () => [
       {
-        header: "Codigo",
-        accessorKey: "code",
+        header: "Controle",
+        accessorKey: "name",
         cell: ({ row }) => (
           <Typography
             sx={{
@@ -418,51 +413,44 @@ const ListaProjetoTestes = ({ projectId }) => {
               });
             }}
           >
-            {row.original.code || "-"}
+            {row.original.name || row.original.control || "-"}
           </Typography>
         ),
       },
       {
         header: "Data base",
-        accessorKey: "baseDate",
+        accessorFn: (row) => getTestDate(row),
+        id: "testDate",
         cell: ({ row }) => (
           <Typography sx={{ fontSize: "13px" }}>
-            {formatDate(row.original.baseDate)}
+            {formatTestDate(getTestDate(row.original))}
+          </Typography>
+        ),
+      },
+      {
+        header: "Data de conclusao",
+        accessorFn: (row) => getCompletionDate(row),
+        id: "completionDate",
+        cell: ({ row }) => (
+          <Typography sx={{ fontSize: "13px" }}>
+            {formatTestDate(getCompletionDate(row.original))}
           </Typography>
         ),
       },
       {
         header: "Status",
-        accessorKey: "active",
+        accessorFn: (row) => getTestConclusionLabel(row),
+        id: "testConclusion",
         cell: ({ row }) => (
           <Chip
-            label={row.original.active === true ? "Ativo" : "Inativo"}
-            color={row.original.active === true ? "success" : "error"}
+            label={getTestConclusionLabel(row.original)}
             sx={{
               backgroundColor: "transparent",
               color: "#00000099",
               fontWeight: 600,
               fontSize: "12px",
               height: "28px",
-              "& .MuiChip-icon": {
-                color:
-                  row.original.active === true ? "success.main" : "error.main",
-                marginLeft: "4px",
-              },
             }}
-            icon={
-              <span
-                style={{
-                  backgroundColor: row.original.active === true ? "green" : "red",
-                  borderRadius: "50%",
-                  display: "inline-block",
-                  width: "8px",
-                  height: "8px",
-                  marginRight: "-6px",
-                  marginLeft: "2px",
-                }}
-              />
-            }
           />
         ),
       },

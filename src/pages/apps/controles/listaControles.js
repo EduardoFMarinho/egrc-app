@@ -1301,6 +1301,19 @@ ReactTable.propTypes = {
   onExportExcel: PropTypes.func,
 };
 
+const normalizeFilesPayload = (files) => {
+  if (!Array.isArray(files)) return [];
+
+  return files
+    .map((file) => {
+      if (typeof file === "string") return file;
+      if (file?.path) return file.path;
+      if (file?.Path) return file.Path;
+      return null;
+    })
+    .filter(Boolean);
+};
+
 function ActionCell({ row, refreshData }) {
   const navigation = useNavigate();
   const { token } = useToken();
@@ -1346,10 +1359,12 @@ function ActionCell({ row, refreshData }) {
         },
       );
 
-      const dadosEndpoint = getResponse.data;
+      const dadosEndpoint = getResponse.data?.data ?? getResponse.data;
+      const { Files, files, ...controlPayload } = dadosEndpoint;
       const dadosAtualizados = {
-        ...dadosEndpoint,
+        ...controlPayload,
         active: newStatus === "Ativo",
+        files: normalizeFilesPayload(files ?? Files),
       };
 
       await axios.put(

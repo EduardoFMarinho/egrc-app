@@ -404,7 +404,9 @@ const ListaControleTestes = ({ controlId }) => {
     () => [
       {
         header: "Projeto",
-        accessorKey: "code",
+        accessorFn: (row) =>
+          row.project || row.projectName || row.nameProject || row.code || "",
+        id: "project",
         cell: ({ row }) => (
           <Typography
             sx={{
@@ -422,7 +424,11 @@ const ListaControleTestes = ({ controlId }) => {
               });
             }}
           >
-            {row.original.code || "-"}
+            {row.original.project ||
+              row.original.projectName ||
+              row.original.nameProject ||
+              row.original.code ||
+              "-"}
           </Typography>
         ),
       },
