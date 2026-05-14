@@ -34,102 +34,12 @@ import { useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import LoadingOverlay from "./LoadingOverlay";
 import ptBR from "date-fns/locale/pt-BR";
-import { useLocation } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import axios from "axios";
 import { useToken } from "../../../api/TokenContext";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
-// Dados mock para os selects
-const orgaosReguladores = [
-  { id: 1, nome: "GRI" },
-  { id: 2, nome: "ONU" },
-  { id: 3, nome: "IFRS" },
-  { id: 4, nome: "SASB" },
-  { id: 5, nome: "TCFD" },
-  { id: 6, nome: "CDP" },
-  { id: 7, nome: "IIRC" },
-  { id: 8, nome: "CDSB" },
-];
-
-const niveisTopico = [
-  { id: 1, nome: "standard" },
-  { id: 2, nome: "grupo" },
-  { id: 3, nome: "seção" },
-  { id: 4, nome: "tópico" },
-  { id: 5, nome: "requisito" },
-  { id: 6, nome: "indicador" },
-];
-
-const pilaresTopico = [
-  { id: 1, nome: "Ambiental" },
-  { id: 2, nome: "Social" },
-  { id: 3, nome: "Governança" },
-];
-
-const gruposTopico = [
-  // Grupos Ambientais
-  { id: 1, nome: "Mudanças Climáticas", pilar: "Ambiental" },
-  { id: 2, nome: "Recursos Hídricos", pilar: "Ambiental" },
-  { id: 3, nome: "Biodiversidade", pilar: "Ambiental" },
-  { id: 4, nome: "Gestão de Resíduos", pilar: "Ambiental" },
-  { id: 5, nome: "Energia", pilar: "Ambiental" },
-  
-  // Grupos Sociais
-  { id: 6, nome: "Direitos Humanos", pilar: "Social" },
-  { id: 7, nome: "Diversidade e Inclusão", pilar: "Social" },
-  { id: 8, nome: "Saúde e Segurança", pilar: "Social" },
-  { id: 9, nome: "Desenvolvimento Comunitário", pilar: "Social" },
-  { id: 10, nome: "Relações Trabalhistas", pilar: "Social" },
-  
-  // Grupos de Governança
-  { id: 11, nome: "Ética e Integridade", pilar: "Governança" },
-  { id: 12, nome: "Transparência", pilar: "Governança" },
-  { id: 13, nome: "Gestão de Riscos", pilar: "Governança" },
-  { id: 14, nome: "Estrutura de Governança", pilar: "Governança" },
-];
-
-const temasEsg = [
-  { id: 1, nome: "Emissões de GEE" },
-  { id: 2, nome: "Consumo de Água" },
-  { id: 3, nome: "Gestão de Resíduos" },
-  { id: 4, nome: "Diversidade de Gênero" },
-  { id: 5, nome: "Segurança do Trabalho" },
-  { id: 6, nome: "Ética Empresarial" },
-  { id: 7, nome: "Transparência Corporativa" },
-  { id: 8, nome: "Direitos Humanos" },
-  { id: 9, nome: "Inovação Sustentável" },
-  { id: 10, nome: "Engajamento de Stakeholders" },
-];
-
-const indicadores = [
-  { id: 1, nome: "Indicador de Emissões Scope 1" },
-  { id: 2, nome: "Indicador de Emissões Scope 2" },
-  { id: 3, nome: "Indicador de Emissões Scope 3" },
-  { id: 4, nome: "Indicador de Consumo de Água" },
-  { id: 5, nome: "Indicador de Geração de Resíduos" },
-  { id: 6, nome: "Indicador de Diversidade" },
-  { id: 7, nome: "Indicador de Segurança do Trabalho" },
-  { id: 8, nome: "Indicador de Satisfação do Cliente" },
-  { id: 9, nome: "Indicador de Governança Corporativa" },
-  { id: 10, nome: "Indicador de Inovação" },
-];
-
-const colaboradores = [
-  { id: 1, nome: "João Silva" },
-  { id: 2, nome: "Maria Santos" },
-  { id: 3, nome: "Pedro Oliveira" },
-  { id: 4, nome: "Ana Costa" },
-  { id: 5, nome: "Carlos Ferreira" },
-  { id: 6, nome: "Lucia Mendes" },
-];
-
-const motivosRevogacao = [
-  { id: 1, nome: "Atualização de norma" },
-  { id: 2, nome: "Mudança regulatória" },
-  { id: 3, nome: "Obsolescência" },
-  { id: 4, nome: "Consolidação com outras normas" },
-  { id: 5, nome: "Revisão de escopo" },
-];
+import { API_URL } from 'config';
 
 // ==============================|| NOVO PADRÕES E FRAMEWORKS ||============================== //
 function NovoPadroesFrameworks() {
@@ -137,11 +47,28 @@ function NovoPadroesFrameworks() {
   const navigate = useNavigate();
   const location = useLocation();
   const { padraoFrameworkDados } = location.state || {};
+  const { topicCode: routeTopicCode } = useParams();
   
   const [loading, setLoading] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const [requisicao, setRequisicao] = useState("Criar");
   const [mensagemFeedback, setMensagemFeedback] = useState("cadastrado");
   const [hasChanges, setHasChanges] = useState(false);
+
+  const [orgaosReguladores, setOrgaosReguladores] = useState([]);
+  const [niveisTopico, setNiveisTopico] = useState([]);
+  const [pilaresTopico, setPilaresTopico] = useState([
+    { id: 1, nome: "Ambiental" },
+    { id: 2, nome: "Social" },
+    { id: 3, nome: "Governança" },
+  ]);
+  const [gruposTopico, setGruposTopico] = useState([]);
+  const [temasEsg, setTemasEsg] = useState([]);
+  const [indicadores, setIndicadores] = useState([]);
+  const [colaboradores, setColaboradores] = useState([]);
+  const [motivosRevogacao, setMotivosRevogacao] = useState([]);
+  const [topicosSuperior, setTopicosSuperior] = useState([]);
+  const [topicosInferior, setTopicosInferior] = useState([]);
   
   window.hasChanges = hasChanges;
   window.setHasChanges = setHasChanges;
@@ -183,37 +110,121 @@ function NovoPadroesFrameworks() {
     anexos: [],
   });
 
-  // Lista de tópicos superiores (simulando dados existentes)
-  const [topicosSuperior, setTopicosSuperior] = useState([
-    { id: 1, nome: "GRI 100 - Padrões Universais" },
-    { id: 2, nome: "GRI 200 - Padrões Econômicos" },
-    { id: 3, nome: "GRI 300 - Padrões Ambientais" },
-    { id: 4, nome: "GRI 400 - Padrões Sociais" },
-    { id: 5, nome: "SASB - Materiality Map" },
-    { id: 6, nome: "TCFD - Governance" },
-  ]);
+  // Fetch all options
+  useEffect(() => {
+    const fetchOptions = async () => {
+      if (!token) return;
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        
+        // Fetch specific configs
+        try {
+           const configsRes = await axios.get(`${API_URL}Framework/configs`, { headers });
+           const cData = configsRes.data || {};
+           if (cData.regulatoryBodies) setOrgaosReguladores(cData.regulatoryBodies.map(i => ({...i, nome: i.name})));
+           if (cData.topicLevels) setNiveisTopico(cData.topicLevels.map(i => ({...i, nome: i.name})));
+           if (cData.topicGroups) setGruposTopico(cData.topicGroups.map(i => ({...i, nome: i.name})));
+           if (cData.revocationReasons) setMotivosRevogacao(cData.revocationReasons.map(i => ({...i, nome: i.name})));
+           // if topics are also here:
+           if (cData.topics) {
+               setTopicosSuperior(cData.topics.map(i => ({...i, nome: i.topicName})));
+               setTopicosInferior(cData.topics.map(i => ({...i, nome: i.topicName})));
+           }
+        } catch (e) {
+           console.error("Error fetching configs:", e);
+        }
 
-  // Lista de tópicos inferiores (simulando dados existentes)
-  const [topicosInferior, setTopicosInferior] = useState([
-    { id: 1, nome: "GRI 101 - Fundamentos" },
-    { id: 2, nome: "GRI 102 - Divulgações Gerais" },
-    { id: 3, nome: "GRI 103 - Abordagem de Gestão" },
-    { id: 4, nome: "GRI 201 - Performance Econômica" },
-    { id: 5, nome: "GRI 301 - Materiais" },
-    { id: 6, nome: "GRI 302 - Energia" },
-    { id: 7, nome: "GRI 401 - Emprego" },
-    { id: 8, nome: "GRI 402 - Relações Trabalhistas" },
-  ]);
+        const requests = [
+          { url: `${API_URL}Theme`, setter: setTemasEsg, nameKey: 'themeName' },
+          { url: `${API_URL}Indicator`, setter: setIndicadores, nameKey: 'indicatorName' },
+          { url: `${API_URL}collaborators`, setter: setColaboradores, nameKey: 'name' }
+        ];
+
+        await Promise.all(requests.map(async (req) => {
+          try {
+            const res = await axios.get(req.url, { headers });
+            let data = res.data || [];
+            // Filtra globalmente garantindo que itens com active ou status definidos como false não sejam exibidos nos seletores
+            data = data.filter(item => {
+              if (item.active !== undefined) return item.active === true;
+              if (item.status !== undefined) return item.status === true;
+              return true;
+            });
+            const mappedData = data.map(item => {
+              const id = item.id || item.idCollaborator || item.indicatorId || item.idTheme;
+              return {
+                ...item,
+                id: id,
+                nome: item[req.nameKey] || item.nome || item.name || id
+              };
+            });
+            req.setter(mappedData);
+          } catch (e) {
+            console.error(`Error fetching ${req.url}:`, e);
+          }
+        }));
+        setOptionsLoading(false);
+      } catch (error) {
+        console.error("Error fetching options:", error);
+        setOptionsLoading(false);
+      }
+    };
+    fetchOptions();
+  }, [token]);
 
   // Em caso de edição
   useEffect(() => {
-    if (padraoFrameworkDados) {
-      setRequisicao("Editar");
-      setMensagemFeedback("editado");
-      // Aqui você carregaria os dados do padrão/framework para edição
-      // setFormData com os dados existentes
-    }
-  }, [padraoFrameworkDados]);
+    const fetchEditData = async () => {
+      const code = routeTopicCode || padraoFrameworkDados?.topicCode || padraoFrameworkDados?.codigoTopico;
+      if (code && token && !optionsLoading) {
+        setRequisicao("Editar");
+        setMensagemFeedback("editado");
+        setLoading(true);
+        try {
+          const res = await axios.get(`${API_URL}Framework/topic/code/${code}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = res.data;
+          if (data) {
+            const findItem = (list, id, key = 'id') => list.find(item => item[key] === id) || null;
+            const findMultiple = (list, ids, key = 'id') => list.filter(item => ids?.includes(item[key]));
+
+            setFormData({
+              id: data.id || "",
+              codigoTopico: data.topicCode || "",
+              nomeTopico: data.topicName || "",
+              descricaoTopico: data.topicDescription || "",
+              requisitos: data.requirements || "",
+              orientacoes: data.guidelines || "",
+              codigoPadraoEsg: data.frameworkCode || "",
+              nomePadraoEsg: data.frameworkName || "",
+              descricaoPadraoEsg: data.frameworkDescription || "",
+              nomeOrgaoRegulador: findItem(orgaosReguladores, data.regulatoryBodyId),
+              nivelTopico: findItem(niveisTopico, data.topicLevelId),
+              topicoSuperior: findItem(topicosSuperior, data.parentTopicId),
+              topicoInferior: findMultiple(topicosInferior, data.childTopicIds || []),
+              pilarTopico: pilaresTopico.find(p => p.id === data.topicPillar || p.nome === data.topicPillar) || null,
+              grupoTopico: findMultiple(gruposTopico, data.topicGroupIds || []),
+              temaEsg: findMultiple(temasEsg, data.themeIds || []),
+              responsavel: findItem(colaboradores, data.responsibleId),
+              indicador: findMultiple(indicadores, data.indicatorIds || []),
+              dataPublicacao: data.publicationDate ? new Date(data.publicationDate) : null,
+              dataRevogacao: data.revocationDate ? new Date(data.revocationDate) : null,
+              motivoRevogacao: findItem(motivosRevogacao, data.revocationReasonId),
+              anexos: data.attachments || []
+            });
+          }
+        } catch (e) {
+          console.error("Erro ao carregar dados de edição:", e);
+          enqueueSnackbar("Não foi possível carregar os dados para edição.", { variant: "error" });
+        } finally {
+          setLoading(false);
+          setHasChanges(false);
+        }
+      }
+    };
+    fetchEditData();
+  }, [padraoFrameworkDados, token, optionsLoading]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -386,8 +397,44 @@ function NovoPadroesFrameworks() {
     try {
       setLoading(true);
       
-      // Simular requisição para API
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const uniqueIds = (arr) => [...new Set((arr || []).map(i => i.id).filter(id => id && id !== ''))];
+      
+      const payload = {
+        id: requisicao === "Editar" ? formData.id : undefined,
+        topicCode: formData.codigoTopico,
+        topicName: formData.nomeTopico,
+        topicDescription: formData.descricaoTopico,
+        requirements: formData.requisitos,
+        guidelines: formData.orientacoes,
+        frameworkCode: formData.codigoPadraoEsg,
+        frameworkName: formData.nomePadraoEsg,
+        frameworkDescription: formData.descricaoPadraoEsg,
+        regulatoryBodyId: formData.nomeOrgaoRegulador?.id || null,
+        topicLevelId: formData.nivelTopico?.id || null,
+        parentTopicId: formData.topicoSuperior?.id || null,
+        childTopicIds: uniqueIds(formData.topicoInferior),
+        topicPillar: formData.pilarTopico?.id || 0,
+        topicGroupIds: uniqueIds(formData.grupoTopico),
+        themeIds: uniqueIds(formData.temaEsg),
+        responsibleId: formData.responsavel?.id || null,
+        indicatorIds: uniqueIds(formData.indicador),
+        publicationDate: formData.dataPublicacao ? formData.dataPublicacao.toISOString() : null,
+        revocationDate: formData.dataRevogacao ? formData.dataRevogacao.toISOString() : null,
+        revocationReasonId: formData.motivoRevogacao?.id || null,
+      };
+
+      const url = `${API_URL}Framework/topic`;
+      const method = requisicao === "Editar" ? "put" : "post";
+
+      await axios({
+        method,
+        url,
+        data: payload,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
       
       enqueueSnackbar(`Padrão/Framework ESG ${mensagemFeedback} com sucesso!`, {
         variant: "success",
@@ -574,12 +621,21 @@ function NovoPadroesFrameworks() {
 
           {/* Seção: Classificação e Hierarquia */}
           <Grid item xs={12}>
-            <Divider sx={{ my: 2 }} />
-            <Typography variant="h5" gutterBottom>
+            <Divider sx={{ my: 4, borderColor: 'rgba(0, 0, 0, 0.12)' }} />
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                fontWeight: 700, 
+                color: 'rgba(0, 0, 0, 0.85)', 
+                mb: 2,
+                fontSize: '1.1rem' 
+              }}
+            >
               Classificação e Hierarquia
             </Typography>
           </Grid>
 
+          {/* Linha 1 */}
           <Grid item xs={12} md={6}>
             <Stack spacing={1}>
               <InputLabel>Nível do Tópico</InputLabel>
@@ -618,6 +674,7 @@ function NovoPadroesFrameworks() {
             </Stack>
           </Grid>
 
+          {/* Linha 2 */}
           <Grid item xs={12} md={6}>
             <Stack spacing={1}>
               <InputLabel>Tópicos Inferiores</InputLabel>
@@ -631,7 +688,6 @@ function NovoPadroesFrameworks() {
                   <TextField
                     {...params}
                     placeholder="Selecione os tópicos inferiores"
-                    helperText="Indica os tópicos inferiores a este tópico (vários)"
                   />
                 )}
                 renderTags={(value, getTagProps) =>
@@ -668,46 +724,7 @@ function NovoPadroesFrameworks() {
             </Stack>
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <Stack spacing={1}>
-              <InputLabel>Grupo do Tópico</InputLabel>
-              <Autocomplete
-                multiple
-                options={getGruposPorPilar()}
-                getOptionLabel={(option) => option.nome}
-                value={formData.grupoTopico}
-                onChange={handleMultiSelectChange('grupoTopico')}
-                disabled={!formData.pilarTopico}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    placeholder="Selecione os grupos"
-                    helperText="Grupos dentro do pilar selecionado"
-                  />
-                )}
-                renderTags={(value, getTagProps) =>
-                  value.map((option, index) => (
-                    <Chip
-                      variant="outlined"
-                      label={option.nome}
-                      {...getTagProps({ index })}
-                      key={option.id}
-                      size="small"
-                    />
-                  ))
-                }
-              />
-            </Stack>
-          </Grid>
-
-          {/* Seção: Relacionamentos */}
-          <Grid item xs={12}>
-            <Divider sx={{ my: 2 }} />
-            <Typography variant="h5" gutterBottom>
-              Relacionamentos
-            </Typography>
-          </Grid>
-
+          {/* Linha 3 */}
           <Grid item xs={12} md={6}>
             <Stack spacing={1}>
               <InputLabel>Temas ESG</InputLabel>
