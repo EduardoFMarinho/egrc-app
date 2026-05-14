@@ -33,6 +33,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import ListagemAtributo from "./listaAtributo";
 import ListagemResultado from "./listaResultado";
+import FileUploader from "./FileUploader";
 
 const normalizeId = (value) => {
   if (value == null) return "";
@@ -42,11 +43,49 @@ const normalizeId = (value) => {
       value.id ??
         value.idReviewer ??
         value.idCollaborator ??
-        value.id_responsible
+        value.id_responsible,
     );
   }
 
   return String(value).trim().replace(/^"|"$/g, "").toLowerCase();
+};
+
+const getFirstValue = (source, keys) => {
+  if (!source) return undefined;
+
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+
+  return undefined;
+};
+
+const getPhaseTypeValue = (phaseData) => {
+  const value = getFirstValue(phaseData, [
+    "idTestType",
+    "idTypeTest",
+    "testType",
+    "typeTest",
+    "testPhaseType",
+    "tipoTeste",
+  ]);
+
+  if (value && typeof value === "object") {
+    return (
+      value.id ?? value.idTestType ?? value.idTypeTest ?? value.value ?? ""
+    );
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    const numericValue = Number(trimmedValue);
+    return trimmedValue && Number.isFinite(numericValue)
+      ? numericValue
+      : trimmedValue;
+  }
+
+  return value ?? "";
 };
 
 // ==============================|| LAYOUTS - COLUMNS ||============================== //
@@ -54,7 +93,6 @@ function ColumnsLayouts() {
   const { token } = useToken();
   const navigate = useNavigate();
   const location = useLocation();
-  const [hasStartedByTester, setHasStartedByTester] = useState(false);
   const idUser = localStorage.getItem("id_user");
   const { dadosApi, TesteId } = location.state || {};
   const [nomeFaseTeste, setNomeFase] = useState("");
@@ -71,14 +109,13 @@ function ColumnsLayouts() {
   const isInitialEdit = Boolean(dadosApi?.idTestPhase);
   // modo atual do formulário
   const [requisicao, setRequisicao] = useState(
-    isInitialEdit ? "Editar" : "Criar"
+    isInitialEdit ? "Editar" : "Criar",
   );
-  // modo *original* (nunca muda)
-  const [originalRequisicao] = useState(isInitialEdit ? "Editar" : "Criar");
   const [mensagemFeedback, setMensagemFeedback] = useState("cadastrada");
   const [faseTesteDados, setFaseTesteDados] = useState(null);
+  const [createdPhaseData, setCreatedPhaseData] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
-  const [deletedFiles] = useState([]);
+  const [deletedFiles, setDeletedFiles] = useState([]);
   // Para armazenar o valor original vindo da API
   const [originalSample, setOriginalSample] = useState(null);
 
@@ -87,11 +124,9 @@ function ColumnsLayouts() {
   const [pendingSampleValue, setPendingSampleValue] = useState("");
 
   const [statuss] = useState([
-    { id: 1, nome: "Não Iniciado" },
+    { id: 1, nome: "Nao Iniciado" },
     { id: 2, nome: "Em Teste" },
-    { id: 3, nome: "Em Revisão" },
-    { id: 4, nome: "Concluído" },
-    { id: 5, nome: "Revisado" },
+    { id: 4, nome: "Concluido" },
   ]);
   const [tipoTestes] = useState([
     { id: 1, nome: "Desenho" },
@@ -206,14 +241,51 @@ function ColumnsLayouts() {
     return null;
   };
 
+  const getPhaseTypePayload = () => {
+    const selectedType = formData.tipoTeste || null;
+
+    return {
+      idTestType: selectedType,
+      idTypeTest: selectedType,
+      testType: selectedType,
+      typeTest: selectedType,
+      tipoTeste: selectedType,
+    };
+  };
+
+  const mergeLocalPhaseFields = (phaseData = {}) => ({
+    ...phaseData,
+    idTestPhase:
+      phaseData.idTestPhase || phaseData.id || faseTesteDados?.idTestPhase,
+    name: nomeFaseTeste || phaseData.name,
+    description: descricao || phaseData.description || "",
+    testPhaseStatus: phaseData.testPhaseStatus || formData.status || 1,
+    population: Number(populacao) || phaseData.population || 0,
+    sample: Number(amostra) || phaseData.sample || 0,
+    sampleSelectionMethodology:
+      descricaoMetodologia || phaseData.sampleSelectionMethodology || "",
+    idTest: TesteId || phaseData.idTest,
+    idTester: formData.testador || phaseData.idTester,
+    idReviewers: formData.revisor?.length
+      ? formData.revisor
+      : phaseData.idReviewers || [],
+    idDeficiency: formData.deficiencia || phaseData.idDeficiency || null,
+    descriptionConclusionTester:
+      descricaoTestador.trim() || phaseData.descriptionConclusionTester || "",
+    descriptionConclusionReviewer:
+      descricaoRevisor || phaseData.descriptionConclusionReviewer || "",
+    files: formData.files?.length ? formData.files : phaseData.files || [],
+    ...getPhaseTypePayload(),
+  });
+
   useEffect(() => {
     fetchData(
       `${process.env.REACT_APP_API_URL}collaborators/responsibles`,
-      setTestadores
+      setTestadores,
     );
     fetchData(
       `${process.env.REACT_APP_API_URL}collaborators/responsibles`,
-      setRevisores
+      setRevisores,
     );
     fetchData(`${process.env.REACT_APP_API_URL}deficiencies`, setDeficiencias);
     window.scrollTo(0, 0);
@@ -231,7 +303,7 @@ function ColumnsLayouts() {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
-            }
+            },
           );
 
           if (!response.ok) {
@@ -243,12 +315,22 @@ function ColumnsLayouts() {
           // Atualize os estados para o modo de edição
           setRequisicao("Editar");
           setMensagemFeedback("editada");
-          setHasStartedByTester(data.testPhaseStatus > 1);
           // Preenchendo os campos com os dados recebidos
-          setFaseTesteDados(data);
+          setFaseTesteDados((prev) =>
+            mergeLocalPhaseFields({ ...prev, ...data }),
+          );
           setNomeFase(data.name);
-          window.dispatchEvent(new CustomEvent('updateBreadcrumbName', { detail: data.name }));
-          setDescricao(data.description || "");
+          window.dispatchEvent(
+            new CustomEvent("updateBreadcrumbName", { detail: data.name }),
+          );
+          setDescricao((prev) => {
+            const descriptionFromApi = getFirstValue(data, [
+              "description",
+              "Description",
+              "descricao",
+            ]);
+            return descriptionFromApi ?? prev ?? "";
+          });
           setPopulacao(data.population ? data.population.toString() : "");
           setAmostra(data.sample ? data.sample.toString() : "");
           setOriginalSample(data.sample);
@@ -257,31 +339,56 @@ function ColumnsLayouts() {
 
           // Para os DatePickers, converta as datas se não estiverem nulas
           setDataInicioCobertura(
-            data.startDateCoverage ? new Date(data.startDateCoverage) : null
+            data.startDateCoverage ? new Date(data.startDateCoverage) : null,
           );
           setDataFimCobertura(
-            data.endDateCoverage ? new Date(data.endDateCoverage) : null
+            data.endDateCoverage ? new Date(data.endDateCoverage) : null,
           );
           setDataInicioTeste(
-            data.startDateTest ? new Date(data.startDateTest) : null
+            data.startDateTest ? new Date(data.startDateTest) : null,
           );
           setDataFimTeste(data.endDateTest ? new Date(data.endDateTest) : null);
           setDataConclusaoEfetiva(
             data.effectiveCompletionDate
               ? new Date(data.effectiveCompletionDate)
-              : null
+              : null,
           );
+          setDescricaoTestador((prev) => {
+            const conclusionFromApi = getFirstValue(data, [
+              "descriptionConclusionTester",
+              "DescriptionConclusionTester",
+              "descriptionTestConclusion",
+              "descricaoConclusaoTestador",
+              "testerConclusion",
+            ]);
+            return conclusionFromApi ?? prev ?? "";
+          });
 
           // Atualiza o formData para os campos que esperam objetos ou arrays
           setFormData((prev) => ({
             ...prev,
-            testador: isInitialEdit ? data.idTester : idUser,
+            testador: data.idTester || idUser,
             status: data.testPhaseStatus,
+            tipoTeste: getPhaseTypeValue(data) || prev.tipoTeste,
             revisor: data.idReviewers || [],
             deficiencia: getPhaseDeficiencyId(data),
+            files: Array.isArray(data.files)
+              ? data.files.map((file) => ({
+                  name: file.name || file.fileName || file.document,
+                  path: file.path || file.document || file.url || file,
+                }))
+              : [],
           }));
 
-          setDescricaoRevisor(data.descriptionConclusionReviewer || "");
+          setDescricaoRevisor((prev) => {
+            const conclusionFromApi = getFirstValue(data, [
+              "descriptionConclusionReviewer",
+              "DescriptionConclusionReviewer",
+              "descricaoConclusaoRevisor",
+              "reviewerConclusion",
+            ]);
+            return conclusionFromApi ?? prev ?? "";
+          });
           setLoading(false);
         } catch (err) {
           console.error("Erro ao buscar os dados:", err.message);
@@ -305,7 +412,7 @@ function ColumnsLayouts() {
           idTestPhase: faseTesteDados.idTestPhase,
           sample: Number(pendingSampleValue),
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       setOriginalSample(Number(pendingSampleValue));
       enqueueSnackbar("Amostra atualizada com sucesso!", {
@@ -339,7 +446,7 @@ function ColumnsLayouts() {
     } else {
       tratarMudancaInputGeral(
         "revisor",
-        newValue.map((item) => item.id)
+        newValue.map((item) => item.id),
       );
     }
   };
@@ -361,12 +468,26 @@ function ColumnsLayouts() {
   };
 
   const continuarEdicao = () => {
+    const phaseToEdit = mergeLocalPhaseFields(
+      createdPhaseData || faseTesteDados || dadosApi || {},
+    );
+
+    if (!phaseToEdit?.idTestPhase) {
+      enqueueSnackbar("Nao foi possivel abrir a fase criada para edicao.", {
+        variant: "error",
+        anchorOrigin: { vertical: "top", horizontal: "right" },
+      });
+      return;
+    }
+
     setRequisicao("Editar");
+    setMensagemFeedback("editada");
     setSuccessDialogOpen(false);
     navigate(location.pathname, {
       replace: true,
-      state: { dadosApi, TesteId },
+      state: { dadosApi: phaseToEdit, TesteId },
     });
+    window.scrollTo(0, 0);
   };
 
   // Função para voltar para a listagem
@@ -386,40 +507,32 @@ function ColumnsLayouts() {
 
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
 
-  const reviewerIds = useMemo(
-    () =>
-      Array.isArray(formData.revisor)
-        ? formData.revisor.map((revisor) => normalizeId(revisor))
-        : [],
-    [formData.revisor]
-  );
   const currentUserId = normalizeId(idUser);
   const status = faseTesteDados?.testPhaseStatus || formData.status;
-  const creating = originalRequisicao === "Criar";
-  const editing = !creating; // originalRequisicao === "Editar"
-  const started = hasStartedByTester;
+  const externalStatus =
+    status === 4 || status === 5 ? 4 : status === 1 ? 1 : 2;
+  const creating = requisicao === "Criar";
+  const editing = requisicao === "Editar";
   const isTester =
     Boolean(currentUserId) && currentUserId === normalizeId(formData.testador);
-  const isReviewer = Boolean(currentUserId) && reviewerIds.includes(currentUserId);
-  const showReviewerDecisionActions = editing && status === 3 && isReviewer;
+  const showReviewerDecisionActions = false;
 
   const { buttonTitle } = useMemo(() => {
     let title = "";
     if (status === 1 && isTester) title = "INICIAR";
-    else if (status === 2 && isTester) title = "TESTE REALIZADO";
-    else if (showReviewerDecisionActions)
-      title = "REVISADO / RETORNAR";
-    else if (status === 5 && isReviewer)
-      title = "RETORNAR";
+    else if ((status === 2 || status === 3 || status === 6) && isTester) {
+      title = "CONCLUIR FASE";
+    }
     return { buttonTitle: title };
-  }, [status, isTester, isReviewer, showReviewerDecisionActions]);
+  }, [status, isTester]);
 
   const handleStart = async () => {
     let url = "";
     let method = "";
     let payload = {};
+    const startDate = new Date();
 
-    setDataInicioTeste(new Date());
+    setDataInicioTeste(startDate);
 
     // Validação dos campos obrigatórios
     const missingFields = [];
@@ -459,7 +572,7 @@ function ColumnsLayouts() {
 
       const newFiles = formData.files.filter((file) => file instanceof File);
       const existingFiles = formData.files.filter(
-        (file) => !(file instanceof File)
+        (file) => !(file instanceof File),
       );
 
       let uploadFilesResult = { files: [] };
@@ -468,7 +581,7 @@ function ColumnsLayouts() {
         formDataUpload.append("ContainerFolder", 4);
         formDataUpload.append(
           "IdContainer",
-          requisicao === "Editar" ? faseTesteDados?.idTestPhase : ""
+          requisicao === "Editar" ? faseTesteDados?.idTestPhase : "",
         );
         newFiles.forEach((file) => {
           formDataUpload.append("Files", file, file.name);
@@ -482,7 +595,7 @@ function ColumnsLayouts() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "multipart/form-data",
             },
-          }
+          },
         );
         uploadFilesResult = uploadResponse.data;
       }
@@ -505,6 +618,7 @@ function ColumnsLayouts() {
           idTestPhase: faseTesteDados?.idTestPhase,
           name: nomeFaseTeste,
           description: descricao,
+          ...getPhaseTypePayload(),
           testPhaseStatus: 2,
           note: faseTesteDados?.note || "",
           startDateCoverage: dataInicioCobertura
@@ -513,7 +627,7 @@ function ColumnsLayouts() {
           endDateCoverage: dataFimCobertura
             ? new Date(dataFimCobertura).toISOString()
             : null,
-          startDateTest: new Date(),
+          startDateTest: startDate.toISOString(),
           endDateTest: dataFimTeste
             ? new Date(dataFimTeste).toISOString()
             : null,
@@ -525,6 +639,7 @@ function ColumnsLayouts() {
           idReviewer: hasReviewers ? formData.revisor[0] : null,
           idDeficiency: formData.deficiencia || null,
           descriptionConclusionReviewer: descricaoRevisor,
+          descriptionConclusionTester: descricaoTestador.trim(),
           population: Number(populacao),
           sample: Number(amostra),
           sampleSelectionMethodology: descricaoMetodologia,
@@ -562,14 +677,17 @@ function ColumnsLayouts() {
 
       // No caso de criação, podemos esperar que a resposta traga os dados (por exemplo, idTestPhase)
       if (requisicao === "Criar" && data.data && data.data.idTestPhase) {
-        setFaseTesteDados(data.data);
+        const createdPhase = mergeLocalPhaseFields(data.data);
+
+        setCreatedPhaseData(createdPhase);
+        setFaseTesteDados(createdPhase);
+        setRequisicao("Editar");
+        setMensagemFeedback("editada");
         setSuccessDialogOpen(true);
       } else {
         // Para edição, mesmo sem retorno, redirecionamos para a listagem
         setFormData((prev) => ({ ...prev, status: 2 }));
         setFaseTesteDados((prev) => ({ ...prev, testPhaseStatus: 2 }));
-        console.log(faseTesteDados);
-        setHasStartedByTester(true);
         enqueueSnackbar("Teste iniciado com sucesso!", {
           variant: "success",
           anchorOrigin: { vertical: "top", horizontal: "right" },
@@ -599,22 +717,18 @@ function ColumnsLayouts() {
     let payload = {};
     const hasReviewers =
       Array.isArray(formData.revisor) && formData.revisor.length > 0;
-    const nextStatus = hasReviewers ? 3 : 4;
+    const nextStatus = 4;
+    const completionDate = new Date();
 
     // VALIDAÇÃO CONDICIONAL: Campos obrigatórios quando status for "teste realizado" (3)
     const missingFields = [];
-    
+
     // Campos sempre obrigatórios
     if (!formData.testador) {
       setFormValidation((prev) => ({ ...prev, testador: false }));
       missingFields.push("Testador");
     }
-    
-    // Campos obrigatórios apenas para status "teste realizado"
-    if (!dataConclusaoEfetiva) {
-      missingFields.push("Data de conclusão");
-    }
-    
+
     if (!descricaoTestador || descricaoTestador.trim() === "") {
       missingFields.push("Descrição da conclusão");
     }
@@ -651,7 +765,7 @@ function ColumnsLayouts() {
 
       const newFiles = formData.files.filter((file) => file instanceof File);
       const existingFiles = formData.files.filter(
-        (file) => !(file instanceof File)
+        (file) => !(file instanceof File),
       );
 
       let uploadFilesResult = { files: [] };
@@ -660,7 +774,7 @@ function ColumnsLayouts() {
         formDataUpload.append("ContainerFolder", 4);
         formDataUpload.append(
           "IdContainer",
-          requisicao === "Editar" ? faseTesteDados?.idTestPhase : ""
+          requisicao === "Editar" ? faseTesteDados?.idTestPhase : "",
         );
         newFiles.forEach((file) => {
           formDataUpload.append("Files", file, file.name);
@@ -674,7 +788,7 @@ function ColumnsLayouts() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "multipart/form-data",
             },
-          }
+          },
         );
         uploadFilesResult = uploadResponse.data;
       }
@@ -694,6 +808,7 @@ function ColumnsLayouts() {
           idTestPhase: faseTesteDados?.idTestPhase,
           name: nomeFaseTeste,
           description: descricao,
+          ...getPhaseTypePayload(),
           testPhaseStatus: nextStatus,
           note: faseTesteDados?.note || "",
           startDateCoverage: dataInicioCobertura
@@ -702,18 +817,19 @@ function ColumnsLayouts() {
           endDateCoverage: dataFimCobertura
             ? new Date(dataFimCobertura).toISOString()
             : null,
-          startDateTest: new Date(),
+          startDateTest: dataInicioTeste
+            ? new Date(dataInicioTeste).toISOString()
+            : completionDate.toISOString(),
           endDateTest: dataFimTeste
             ? new Date(dataFimTeste).toISOString()
-            : null,
-          effectiveCompletionDate: dataConclusaoEfetiva
-            ? new Date(dataConclusaoEfetiva).toISOString()
-            : null,
+            : completionDate.toISOString(),
+          effectiveCompletionDate: completionDate.toISOString(),
           idTest: TesteId,
           idTester: formData.testador,
           idReviewer: hasReviewers ? formData.revisor[0] : null,
           idDeficiency: formData.deficiencia || null,
           descriptionConclusionReviewer: descricaoRevisor,
+          descriptionConclusionTester: descricaoTestador.trim(),
           population: Number(populacao),
           sample: Number(amostra),
           sampleSelectionMethodology: descricaoMetodologia,
@@ -751,22 +867,23 @@ function ColumnsLayouts() {
 
       // No caso de criação, podemos esperar que a resposta traga os dados (por exemplo, idTestPhase)
       if (requisicao === "Criar" && data.data && data.data.idTestPhase) {
-        setFaseTesteDados(data.data);
+        const createdPhase = mergeLocalPhaseFields(data.data);
+
+        setCreatedPhaseData(createdPhase);
+        setFaseTesteDados(createdPhase);
+        setRequisicao("Editar");
+        setMensagemFeedback("editada");
         setSuccessDialogOpen(true);
       } else {
         // Para edição, mesmo sem retorno, redirecionamos para a listagem
         setFormData((prev) => ({ ...prev, status: nextStatus }));
         setFaseTesteDados((prev) => ({ ...prev, testPhaseStatus: nextStatus }));
-        setHasStartedByTester(true);
-        enqueueSnackbar(
-          hasReviewers
-            ? "Teste realizado com sucesso!"
-            : "Teste concluido com sucesso!",
-          {
-            variant: "success",
-            anchorOrigin: { vertical: "top", horizontal: "right" },
-          },
-        );
+        setDataConclusaoEfetiva(completionDate);
+        setDataFimTeste((prev) => prev || completionDate);
+        enqueueSnackbar("Fase concluida com sucesso!", {
+          variant: "success",
+          anchorOrigin: { vertical: "top", horizontal: "right" },
+        });
         window.scrollTo(0, 0);
       }
     } catch (error) {
@@ -823,7 +940,7 @@ function ColumnsLayouts() {
 
       const newFiles = formData.files.filter((file) => file instanceof File);
       const existingFiles = formData.files.filter(
-        (file) => !(file instanceof File)
+        (file) => !(file instanceof File),
       );
 
       let uploadFilesResult = { files: [] };
@@ -832,7 +949,7 @@ function ColumnsLayouts() {
         formDataUpload.append("ContainerFolder", 4);
         formDataUpload.append(
           "IdContainer",
-          requisicao === "Editar" ? faseTesteDados?.idTestPhase : ""
+          requisicao === "Editar" ? faseTesteDados?.idTestPhase : "",
         );
         newFiles.forEach((file) => {
           formDataUpload.append("Files", file, file.name);
@@ -846,7 +963,7 @@ function ColumnsLayouts() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "multipart/form-data",
             },
-          }
+          },
         );
         uploadFilesResult = uploadResponse.data;
       }
@@ -866,6 +983,7 @@ function ColumnsLayouts() {
           idTestPhase: faseTesteDados?.idTestPhase,
           name: nomeFaseTeste,
           description: descricao,
+          ...getPhaseTypePayload(),
           testPhaseStatus: 4,
           note: faseTesteDados?.note || "",
           startDateCoverage: dataInicioCobertura
@@ -889,6 +1007,7 @@ function ColumnsLayouts() {
               : "",
           idDeficiency: formData.deficiencia || null,
           descriptionConclusionReviewer: descricaoRevisor,
+          descriptionConclusionTester: descricaoTestador.trim(),
           population: Number(populacao),
           sample: Number(amostra),
           sampleSelectionMethodology: descricaoMetodologia,
@@ -930,8 +1049,7 @@ function ColumnsLayouts() {
         // Para edição, mesmo sem retorno, redirecionamos para a listagem
         setFormData((prev) => ({ ...prev, status: 4 }));
         setFaseTesteDados((prev) => ({ ...prev, testPhaseStatus: 4 }));
-        setHasStartedByTester(true);
-        enqueueSnackbar("Teste concluído com sucesso!", {
+        enqueueSnackbar("Fase concluida com sucesso!", {
           variant: "success",
           anchorOrigin: { vertical: "top", horizontal: "right" },
         });
@@ -963,6 +1081,7 @@ function ColumnsLayouts() {
         idTestPhase: faseTesteDados.idTestPhase,
         name: nomeFaseTeste,
         description: descricao,
+        ...getPhaseTypePayload(),
         testPhaseStatus: 2,
         note: faseTesteDados.note || "",
         startDateCoverage: dataInicioCobertura
@@ -983,6 +1102,7 @@ function ColumnsLayouts() {
         idReviewer: formData.revisor.length > 0 ? formData.revisor[0] : "",
         idDeficiency: formData.deficiencia || null,
         descriptionConclusionReviewer: descricaoRevisor,
+        descriptionConclusionTester: descricaoTestador.trim(),
         population: Number(populacao),
         sample: Number(amostra),
         sampleSelectionMethodology: descricaoMetodologia,
@@ -1077,7 +1197,7 @@ function ColumnsLayouts() {
 
       const newFiles = formData.files.filter((file) => file instanceof File);
       const existingFiles = formData.files.filter(
-        (file) => !(file instanceof File)
+        (file) => !(file instanceof File),
       );
 
       let uploadFilesResult = { files: [] };
@@ -1086,7 +1206,7 @@ function ColumnsLayouts() {
         formDataUpload.append("ContainerFolder", 4);
         formDataUpload.append(
           "IdContainer",
-          requisicao === "Editar" ? faseTesteDados?.idTestPhase : ""
+          requisicao === "Editar" ? faseTesteDados?.idTestPhase : "",
         );
         newFiles.forEach((file) => {
           formDataUpload.append("Files", file, file.name);
@@ -1100,7 +1220,7 @@ function ColumnsLayouts() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "multipart/form-data",
             },
-          }
+          },
         );
         uploadFilesResult = uploadResponse.data;
       }
@@ -1119,6 +1239,10 @@ function ColumnsLayouts() {
         method = "POST";
         payload = {
           name: nomeFaseTeste,
+          description: descricao,
+          ...getPhaseTypePayload(),
+          descriptionConclusionReviewer: descricaoRevisor,
+          descriptionConclusionTester: descricaoTestador.trim(),
           population: Number(populacao),
           sample: Number(amostra),
           sampleSelectionMethodology: descricaoMetodologia,
@@ -1137,7 +1261,8 @@ function ColumnsLayouts() {
           idTestPhase: faseTesteDados?.idTestPhase,
           name: nomeFaseTeste,
           description: descricao,
-          testPhaseStatus: formData.status,
+          ...getPhaseTypePayload(),
+          testPhaseStatus: externalStatus,
           note: faseTesteDados?.note || "",
           startDateCoverage: dataInicioCobertura
             ? new Date(dataInicioCobertura).toISOString()
@@ -1162,6 +1287,7 @@ function ColumnsLayouts() {
               : "",
           idDeficiency: formData.deficiencia || null,
           descriptionConclusionReviewer: descricaoRevisor,
+          descriptionConclusionTester: descricaoTestador.trim(),
           population: Number(populacao),
           sample: Number(amostra),
           sampleSelectionMethodology: descricaoMetodologia,
@@ -1202,10 +1328,15 @@ function ColumnsLayouts() {
 
       // No caso de criação, podemos esperar que a resposta traga os dados (por exemplo, idTestPhase)
       if (requisicao === "Criar" && data.data && data.data.idTestPhase) {
-        setFaseTesteDados(data.data);
+        const createdPhase = mergeLocalPhaseFields(data.data);
+
+        setCreatedPhaseData(createdPhase);
+        setFaseTesteDados(createdPhase);
+        setRequisicao("Editar");
+        setMensagemFeedback("editada");
         navigate(location.pathname, {
           replace: true,
-          state: { dadosApi: data.data, TesteId },
+          state: { dadosApi: createdPhase, TesteId },
         });
         setSuccessDialogOpen(true);
       } else {
@@ -1224,8 +1355,8 @@ function ColumnsLayouts() {
   };
 
   const canEditListagem = useMemo(
-    () => isTester && (status === 1 || status === 2),
-    [isTester, status]
+    () => isTester && externalStatus !== 4,
+    [externalStatus, isTester],
   );
 
   const fieldPermissions = useMemo(() => {
@@ -1244,15 +1375,15 @@ function ColumnsLayouts() {
         descricao: true,
         dataInicioCobertura: true,
         dataFimCobertura: true,
-        dataInicioTeste: true,
+        dataInicioTeste: false,
         dataFimTeste: true,
-        dataConclusaoEfetiva: true,
+        dataConclusaoEfetiva: false,
         descricaoTestador: true,
         descricaoRevisor: false,
       };
     }
 
-    if (status === 4) {
+    if (externalStatus === 4) {
       return {
         nomeFaseTeste: false,
         status: false,
@@ -1275,31 +1406,39 @@ function ColumnsLayouts() {
     }
 
     // Caso contrário, aplica as regras de edição
+    const canEditOpenPhase = editing && isTester && externalStatus !== 4;
+
     return {
-      nomeFaseTeste: editing && isTester && started && status < 3,
-      status: editing && isTester && started && status < 3,
-      populacao: editing && isTester && started && status < 3,
-      tipoTeste: editing && isTester && started && status < 3,
-      amostra: editing && isTester && started && status < 3,
-      metodologia: editing && isTester && started && status < 3,
-      deficiencia: editing && isTester && started && status < 3,
+      nomeFaseTeste: canEditOpenPhase,
+      status: false,
+      populacao: canEditOpenPhase,
+      tipoTeste: canEditOpenPhase,
+      amostra: canEditOpenPhase,
+      metodologia: canEditOpenPhase,
+      deficiencia: canEditOpenPhase,
 
       // nunca liberar a edição do testador no modo de edição
       testador: false,
 
-      revisores: editing && isTester && started && status < 3,
-      descricao: editing && isTester && started && status < 3,
-      dataInicioCobertura: editing && isTester && started && status < 3,
-      dataFimCobertura: editing && isTester && started && status < 3,
-      dataInicioTeste: true,
-      dataFimTeste: editing && isTester && started && status < 3,
-      dataConclusaoEfetiva: true,
-      descricaoTestador: editing && isTester && started && status < 3,
+      revisores: canEditOpenPhase,
+      descricao: canEditOpenPhase,
+      dataInicioCobertura: canEditOpenPhase,
+      dataFimCobertura: canEditOpenPhase,
+      dataInicioTeste: false,
+      dataFimTeste: canEditOpenPhase,
+      dataConclusaoEfetiva: false,
+      descricaoTestador: canEditOpenPhase,
 
       // só libera quando os botões REVISADO e RETORNAR aparecem
       descricaoRevisor: showReviewerDecisionActions,
     };
-  }, [creating, editing, isTester, started, status, showReviewerDecisionActions]);
+  }, [
+    creating,
+    editing,
+    externalStatus,
+    isTester,
+    showReviewerDecisionActions,
+  ]);
 
   return (
     <>
@@ -1319,7 +1458,7 @@ function ColumnsLayouts() {
             </Stack>
           </Grid>
 
-          {originalRequisicao === "Editar" && (
+          {editing && (
             <Grid item xs={3} mt={4} ml={5}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 {buttonTitle === "INICIAR" ? (
@@ -1330,13 +1469,13 @@ function ColumnsLayouts() {
                   >
                     INICIAR
                   </Button>
-                ) : buttonTitle === "TESTE REALIZADO" ? (
+                ) : buttonTitle === "CONCLUIR FASE" ? (
                   <Button
                     variant="contained"
                     size="small"
                     onClick={handleTesteRealizado}
                   >
-                    TESTE REALIZADO
+                    CONCLUIR FASE
                   </Button>
                 ) : buttonTitle === "REVISADO / RETORNAR" ? (
                   <>
@@ -1370,7 +1509,7 @@ function ColumnsLayouts() {
             </Grid>
           )}
 
-          {originalRequisicao === "Editar" && (
+          {editing && (
             <Grid item xs={6} sx={{ paddingBottom: 5 }}>
               <Stack spacing={1}>
                 <InputLabel>Status</InputLabel>
@@ -1379,7 +1518,7 @@ function ColumnsLayouts() {
                   options={statuss}
                   getOptionLabel={(option) => option.nome}
                   value={
-                    statuss.find((status) => status.id === formData.status) ||
+                    statuss.find((status) => status.id === externalStatus) ||
                     null
                   }
                   onChange={(event, newValue) => {
@@ -1410,8 +1549,6 @@ function ColumnsLayouts() {
             </Stack>
           </Grid>
 
-          
-
           <Grid item xs={6} sx={{ paddingBottom: 5 }}>
             <Stack spacing={1}>
               <InputLabel>Tipo de teste</InputLabel>
@@ -1421,7 +1558,7 @@ function ColumnsLayouts() {
                 getOptionLabel={(option) => option.nome}
                 value={
                   tipoTestes.find(
-                    (tipoTeste) => tipoTeste.id === formData.tipoTeste
+                    (tipoTeste) => tipoTeste.id === formData.tipoTeste,
                   ) || null
                 }
                 onChange={(event, newValue) => {
@@ -1449,7 +1586,7 @@ function ColumnsLayouts() {
                 value={amostra}
                 onBlur={() => {
                   if (
-                    originalRequisicao === "Editar" &&
+                    editing &&
                     originalSample !== null &&
                     Number(amostra) !== originalSample
                   ) {
@@ -1492,7 +1629,7 @@ function ColumnsLayouts() {
                 getOptionLabel={(option) => option.nome}
                 value={
                   testadores.find(
-                    (testador) => testador.id === formData.testador
+                    (testador) => testador.id === formData.testador,
                   ) || null
                 }
                 onChange={(event, newValue) => {
@@ -1519,7 +1656,7 @@ function ColumnsLayouts() {
                 ]}
                 getOptionLabel={(option) => option.nome}
                 value={formData.revisor.map(
-                  (id) => revisores.find((revisor) => revisor.id === id) || id
+                  (id) => revisores.find((revisor) => revisor.id === id) || id,
                 )}
                 onChange={handleSelectAll2}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
@@ -1541,7 +1678,7 @@ function ColumnsLayouts() {
             </Stack>
           </Grid>
 
-          {originalRequisicao === "Editar" && (
+          {editing && (
             <>
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
@@ -1626,11 +1763,15 @@ function ColumnsLayouts() {
                     onChange={(newValue) => setDataConclusaoEfetiva(newValue)}
                     inputFormat="dd/MM/yyyy"
                     renderInput={(params) => (
-                      <TextField 
-                        fullWidth 
+                      <TextField
+                        fullWidth
                         {...params}
-                        error={!dataConclusaoEfetiva && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3)}
-                        helperText={!dataConclusaoEfetiva && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3) ? "Campo obrigatório para teste realizado" : ""}
+                        error={!dataConclusaoEfetiva && externalStatus === 4}
+                        helperText={
+                          !dataConclusaoEfetiva && externalStatus === 4
+                            ? "Campo preenchido ao concluir a fase"
+                            : ""
+                        }
                       />
                     )}
                   />
@@ -1638,32 +1779,33 @@ function ColumnsLayouts() {
               </Grid>
 
               {requisicao === "Editar" && (
-            <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-              <Stack spacing={1}>
-                <InputLabel>Deficiência</InputLabel>
-                <Autocomplete
-                  disabled={!fieldPermissions.deficiencia}
-                  options={deficiencias}
-                  getOptionLabel={(option) => option?.nome || ""}
-                  value={
-                    deficiencias.find(
-                      (deficiencia) => deficiencia.id === formData.deficiencia
-                    ) || null
-                  }
-                  onChange={(event, newValue) => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      deficiencia: newValue ? newValue.id : null,
-                    }));
-                  }}
-                  isOptionEqualToValue={(option, value) =>
-                    option.id === value.id
-                  }
-                  renderInput={(params) => <TextField {...params} />}
-                />
-              </Stack>
-            </Grid>
-          )}
+                <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+                  <Stack spacing={1}>
+                    <InputLabel>Deficiência</InputLabel>
+                    <Autocomplete
+                      disabled={!fieldPermissions.deficiencia}
+                      options={deficiencias}
+                      getOptionLabel={(option) => option?.nome || ""}
+                      value={
+                        deficiencias.find(
+                          (deficiencia) =>
+                            deficiencia.id === formData.deficiencia,
+                        ) || null
+                      }
+                      onChange={(event, newValue) => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          deficiencia: newValue ? newValue.id : null,
+                        }));
+                      }}
+                      isOptionEqualToValue={(option, value) =>
+                        option.id === value.id
+                      }
+                      renderInput={(params) => <TextField {...params} />}
+                    />
+                  </Stack>
+                </Grid>
+              )}
 
               <Grid item xs={12} sx={{ paddingBottom: 5 }}>
                 <Stack spacing={1}>
@@ -1677,8 +1819,12 @@ function ColumnsLayouts() {
                     multiline
                     rows={4}
                     value={descricaoTestador}
-                    error={!descricaoTestador.trim() && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3)}
-                    helperText={!descricaoTestador.trim() && (faseTesteDados?.testPhaseStatus >= 3 || formData.status >= 3) ? "Campo obrigatório para teste realizado" : ""}
+                    error={!descricaoTestador.trim() && externalStatus === 4}
+                    helperText={
+                      !descricaoTestador.trim() && externalStatus === 4
+                        ? "Campo obrigatorio para concluir a fase"
+                        : ""
+                    }
                   />
                 </Stack>
               </Grid>
@@ -1695,6 +1841,24 @@ function ColumnsLayouts() {
                     multiline
                     rows={4}
                     value={descricaoRevisor}
+                  />
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12} sx={{ paddingBottom: 5 }}>
+                <Stack spacing={1}>
+                  <InputLabel>Anexo</InputLabel>
+                  <FileUploader
+                    containerFolder={4}
+                    idContainer={faseTesteDados?.idTestPhase}
+                    disabled={!canEditListagem}
+                    initialFiles={formData.files}
+                    onFilesChange={(files) =>
+                      setFormData((prev) => ({ ...prev, files }))
+                    }
+                    onFileDelete={(file) =>
+                      setDeletedFiles((prev) => [...prev, file])
+                    }
                   />
                 </Stack>
               </Grid>

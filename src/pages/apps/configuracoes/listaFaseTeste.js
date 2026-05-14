@@ -83,11 +83,12 @@ export const fuzzyFilter = (row, columnId, value) => {
   // 2) mapeia testPhaseStatus de número → texto
   if (columnId === "testPhaseStatus") {
     const statusLabelMap = {
-      1: "Não Iniciado",
+      1: "Nao Iniciado",
       2: "Em Teste",
-      3: "Em Revisão",
-      4: "Concluído",
-      5: "Revisado",
+      3: "Em Teste",
+      4: "Concluido",
+      5: "Concluido",
+      6: "Em Teste",
     };
     cellValue = statusLabelMap[cellValue] || "";
   }
@@ -287,7 +288,7 @@ function ReactTable({
               <Tooltip
                 title={
                   disableCreate
-                    ? "Não e possível adicionar novas fases apos o inicio do teste."
+                    ? "Nao e possivel adicionar novas fases apos a conclusao do teste."
                     : ""
                 }
               >
@@ -1164,11 +1165,12 @@ const ListagemEmpresa = ({ disableCreate = false }) => {
         cell: ({ row }) => {
           const status = row.original.testPhaseStatus;
           const statusMap = {
-            1: { label: "Não Iniciado", bgColor: theme.palette.grey[400] },
+            1: { label: "Nao Iniciado", bgColor: theme.palette.grey[400] },
             2: { label: "Em Teste", bgColor: theme.palette.primary.light },
-            3: { label: "Em Revisão", bgColor: theme.palette.warning.light },
-            4: { label: "Concluído", bgColor: theme.palette.success.light },
-            5: { label: "Revisado", bgColor: theme.palette.secondary.light },
+            3: { label: "Em Teste", bgColor: theme.palette.primary.light },
+            4: { label: "Concluido", bgColor: theme.palette.success.light },
+            5: { label: "Concluido", bgColor: theme.palette.success.light },
+            6: { label: "Em Teste", bgColor: theme.palette.primary.light },
           };
           const { label, bgColor } = statusMap[status] || {};
           return (

@@ -54,8 +54,9 @@ function ColumnsLayouts() {
   const [controles, setControles] = useState([]);
   const [projetos, setProjetos] = useState([]);
   const [assertions, setAssertions] = useState("");
-  const [elementos] = useState([]);
-  const [elementosContabil] = useState([]);
+  const [elementos, setElementos] = useState([]);
+  const [elementosContabil, setElementosContabil] = useState([]);
+  const [, setProcessosOptions] = useState([]);
   const [compensadoControles] = useState([]);
   const [compensaControles] = useState([]);
   const [processos, setProcessos] = useState("");
@@ -76,7 +77,7 @@ function ColumnsLayouts() {
     descricaoConclusao: true,
   });
   const [hasChanges, setHasChanges] = useState(false);
-  const [setDeletedFiles] = useState([]);
+  const [, setDeletedFiles] = useState([]);
   const [statuss] = useState([
     { id: 1, nome: "Não Iniciado" },
     { id: 2, nome: "Em Teste" },
@@ -151,9 +152,23 @@ function ColumnsLayouts() {
         ? value
         : typeof value === "string"
           ? parseISO(value)
-          : new Date(value);
+        : new Date(value);
     return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
   };
+
+  const normalizeIdList = (values = []) =>
+    Array.isArray(values)
+      ? values.filter((value) => value !== null && value !== undefined)
+      : [];
+
+  const uniqueIds = (...groups) => [
+    ...new Set(groups.flatMap((group) => normalizeIdList(group))),
+  ];
+
+  const getNamesByIds = (options, ids) =>
+    normalizeIdList(ids)
+      .map((id) => options.find((option) => option.id === id)?.nome)
+      .filter(Boolean);
 
   const getActivePhases = (phases = []) =>
     phases.filter((phase) => phase?.active !== false);
@@ -162,9 +177,10 @@ function ColumnsLayouts() {
 
   const isTestCompletionPersisted = (testData, phases = []) => {
     const activePhases = getActivePhases(phases);
+    const conclusion = Number(testData?.testConclusion);
     return (
       Boolean(parseStoredDate(testData?.completionDate)) &&
-      Boolean(testData?.testConclusion) &&
+      (conclusion === 1 || conclusion === 2) &&
       activePhases.length > 0 &&
       activePhases.every(isPhaseFinished)
     );
@@ -240,6 +256,112 @@ function ColumnsLayouts() {
     }
   };
 
+  const transformOptions = (items = []) =>
+    items.map((item) => ({
+      id:
+        item.idControl ||
+        item.idLedgerAccount ||
+        item.idProcess ||
+        item.id_responsible ||
+        item.idCategory ||
+        item.idProject ||
+        item.idProjectType ||
+        item.idNormative ||
+        item.idControlType ||
+        item.idDepartment ||
+        item.idExecution ||
+        item.idKri ||
+        item.idElementCoso ||
+        item.idObjective ||
+        item.idInformationActivity ||
+        item.idAssertion ||
+        item.idCvar ||
+        item.idClassification ||
+        item.idRisk ||
+        item.idDeficiency ||
+        item.idCollaborator ||
+        item.idPlatform ||
+        item.id,
+      nome: item.name,
+      ...item,
+    }));
+
+  const hydrateControlFields = async (idControl) => {
+    if (!idControl) return;
+
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [
+        controlResponse,
+        processResponse,
+        ledgerResponse,
+        ipeResponse,
+        elementResponse,
+      ] = await Promise.all([
+        axios.get(
+          `https://api.egrc.homologacao.com.br/api/v1/controls/${idControl}`,
+          { headers },
+        ),
+        axios.get(`https://api.egrc.homologacao.com.br/api/v1/processes`, {
+          headers,
+        }),
+        axios.get(
+          `https://api.egrc.homologacao.com.br/api/v1/ledger-accounts`,
+          { headers },
+        ),
+        axios.get(`https://api.egrc.homologacao.com.br/api/v1/ipe`, {
+          headers,
+        }),
+        axios.get(
+          `https://api.egrc.homologacao.com.br/api/v1/controls/element-cosos`,
+          { headers },
+        ),
+      ]);
+
+      const control = controlResponse.data || {};
+      const processOptions = transformOptions(processResponse.data || []);
+      const ledgerOptions = transformOptions(ledgerResponse.data || []);
+      const ipeOptions = transformOptions(ipeResponse.data || []);
+      const elementOptions = transformOptions(elementResponse.data || []);
+
+      setProcessosOptions(processOptions);
+      setElementosContabil(ledgerOptions);
+      setIpes(ipeOptions);
+      setElementos(elementOptions);
+
+      const processIds = uniqueIds(
+        control.idControlProcesses,
+        control.idProcess ? [control.idProcess] : [],
+      );
+      const ledgerIds = normalizeIdList(control.idControlLedgerAccounts);
+      const ipeIds = normalizeIdList(control.idInformationActivities);
+      const elementIds = normalizeIdList(control.idControlElementCosos);
+
+      const processNames = getNamesByIds(processOptions, processIds);
+      const ledgerNames = getNamesByIds(ledgerOptions, ledgerIds);
+      const ipeNames = getNamesByIds(ipeOptions, ipeIds);
+
+      if (processNames.length > 0) setProcessos(processNames.join("; "));
+
+      setFormData((prev) => ({
+        ...prev,
+        processo: processIds,
+        elementoContabil: ledgerIds,
+        ipe: ipeIds,
+        elemento: elementIds,
+      }));
+
+      if (ledgerNames.length === 0 && control.ledgerAccounts) {
+        setElementosContabil(transformOptions(control.ledgerAccounts));
+      }
+      if (ipeNames.length === 0 && control.informationActivities) {
+        setIpes(transformOptions(control.informationActivities));
+      }
+    } catch (error) {
+      console.error("Erro ao carregar campos vinculados ao controle:", error);
+    }
+  };
+
   useEffect(() => {
     fetchData(
       `https://api.egrc.homologacao.com.br/api/v1/projects`,
@@ -248,6 +370,18 @@ function ColumnsLayouts() {
     fetchData(
       `https://api.egrc.homologacao.com.br/api/v1/projects/types`,
       setTipoProjetos,
+    );
+    fetchData(
+      `https://api.egrc.homologacao.com.br/api/v1/processes`,
+      setProcessosOptions,
+    );
+    fetchData(
+      `https://api.egrc.homologacao.com.br/api/v1/ledger-accounts`,
+      setElementosContabil,
+    );
+    fetchData(
+      `https://api.egrc.homologacao.com.br/api/v1/controls/element-cosos`,
+      setElementos,
     );
     fetchData(`https://api.egrc.homologacao.com.br/api/v1/ipe`, setIpes);
     fetchData(
@@ -307,6 +441,7 @@ function ColumnsLayouts() {
         setTiposControles(data.controlType || "");
         setDescricaoControle(data.description || "");
         setDataPrevistaConclusao(parseStoredDate(data.expectedCompletionDate));
+        setDataBase(parseStoredDate(data.baseDate));
         setFormData((prev) => ({
           ...prev,
           projeto: data.idProject,
@@ -315,6 +450,8 @@ function ColumnsLayouts() {
           responsaveisTeste: data.idResponsible,
           // não setamos status aqui
         }));
+
+        await hydrateControlFields(data.idControl);
 
         // 2) Busca fases do teste e calcula status principal
         const phases = await fetchTestPhases(dadosApi.idTest);
@@ -407,12 +544,7 @@ function ColumnsLayouts() {
       return 1;
     }
 
-    const hasOpenPhases = activePhases.some((phase) => {
-      const phaseStatus = Number(phase?.testPhaseStatus);
-      return phaseStatus === 1 || phaseStatus === 2;
-    });
-
-    return hasOpenPhases ? 2 : 3;
+    return 2;
   };
 
   const formatarNome = (nome) => nome.replace(/\s+/g, "").toLowerCase();
@@ -691,6 +823,7 @@ function ColumnsLayouts() {
         payload = {
           description: descricaoTeste,
           expectedCompletionDate: serializeDate(dataPrevistaConclusao),
+          baseDate: serializeDate(dataBase),
           idProject: formData.projeto,
           idControl: formData.controle,
           idResponsible: formData.responsaveisTeste, // NOVO: Incluído no Criar
@@ -707,10 +840,15 @@ function ColumnsLayouts() {
           idControl: formData.controle,
           idProjectType: tiposControles,
           idResponsible: formData.responsaveisTeste,
-          descriptionTestCompletion: "",
-          completionDate: null,
-          testConclusion: null,
-          active: true,
+          descriptionTestCompletion:
+            controleDados?.descriptionTestCompletion || "",
+          completionDate: controleDados?.completionDate || null,
+          baseDate:
+            serializeDate(dataBase) ||
+            serializeDate(controleDados?.baseDate) ||
+            null,
+          testConclusion: isTestConcluded ? formData.conclusaoTeste : null,
+          active: controleDados?.active ?? true,
         };
       }
 
@@ -831,6 +969,8 @@ function ColumnsLayouts() {
         idResponsible: formData.responsaveisTeste,
         descriptionTestCompletion: descricaoConclusao.trim(),
         completionDate: completionDate.toISOString(),
+        baseDate:
+          serializeDate(dataBase) || serializeDate(controleDados?.baseDate),
         testConclusion: formData.conclusaoTeste,
         active: true,
       };
@@ -965,7 +1105,20 @@ function ColumnsLayouts() {
 
           <Grid item xs={6} sx={{ paddingBottom: 5 }}>
             <Stack spacing={1}>
-              <InputLabel>Responsável pelo teste *</InputLabel>
+              <InputLabel>Data base</InputLabel>
+              <DatePicker
+                disabled={testFieldsLocked}
+                value={dataBase}
+                onChange={(newValue) => setDataBase(newValue)}
+                inputFormat="dd/MM/yyyy"
+                renderInput={(params) => <TextField fullWidth {...params} />}
+              />
+            </Stack>
+          </Grid>
+
+          <Grid item xs={6} sx={{ paddingBottom: 5 }}>
+            <Stack spacing={1}>
+              <InputLabel>Responsavel pelo teste *</InputLabel>
               <Autocomplete
                 disabled={testFieldsLocked}
                 options={responsaveisTestes}
@@ -1099,21 +1252,6 @@ function ColumnsLayouts() {
                       }));
                     }}
                     renderInput={(params) => <TextField {...params} />}
-                  />
-                </Stack>
-              </Grid>
-
-              <Grid item xs={6} sx={{ paddingBottom: 5 }}>
-                <Stack spacing={1}>
-                  <InputLabel>Data base</InputLabel>
-                  <DatePicker
-                    disabled={testFieldsLocked}
-                    value={dataBase}
-                    onChange={(newValue) => setDataBase(newValue)}
-                    inputFormat="dd/MM/yyyy"
-                    renderInput={(params) => (
-                      <TextField fullWidth {...params} />
-                    )}
                   />
                 </Stack>
               </Grid>
@@ -1594,7 +1732,7 @@ function ColumnsLayouts() {
                   </AccordionSummary>
                   <AccordionDetails>
                     <ListagemFaseTestes
-                      disableCreate={testFieldsLocked}
+                      disableCreate={isTestConcluded}
                       novoOrgao={dadosApi}
                     />
                   </AccordionDetails>
