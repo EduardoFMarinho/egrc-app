@@ -33,6 +33,13 @@ import ptBR from "date-fns/locale/pt-BR";
 import { API_URL } from "config";
 import { useToken } from "../../../api/TokenContext";
 import useAuth from "../../../hooks/useAuth";
+import {
+  filterResponsibleOptions,
+  getResponsibleOptionDetail,
+  getResponsibleOptionKey,
+  getResponsibleOptionLabel,
+  mapResponsibleOptions,
+} from "../../../utils/responsibleAutocomplete";
 import LoadingOverlay from "./LoadingOverlay";
 import DrawerEmpresa from "./novaEmpresaDrawerNormativos";
 import DrawerDepartamento from "./novoDepartamentoDrawerNormativas";
@@ -623,6 +630,25 @@ function buildSelectedValues(ids, options) {
   );
 }
 
+function renderResponsibleOption(props, option) {
+  const optionProps = { ...props };
+  delete optionProps.key;
+  const detail = getResponsibleOptionDetail(option);
+
+  return (
+    <li key={getResponsibleOptionKey(option)} {...optionProps}>
+      <Box sx={{ display: "flex", flexDirection: "column" }}>
+        <Typography variant="body2">{getResponsibleOptionLabel(option)}</Typography>
+        {detail ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {detail}
+          </Typography>
+        ) : null}
+      </Box>
+    </li>
+  );
+}
+
 function CommentCard({
   title,
   placeholder,
@@ -880,10 +906,12 @@ function ColumnsLayouts() {
       {
         url: `${API_URL}collaborators/responsibles`,
         setter: setResponsaveis,
+        transform: mapResponsibleOptions,
       },
       {
         url: `${API_URL}collaborators/responsibles`,
         setter: setAprovadores,
+        transform: mapResponsibleOptions,
       },
     ];
 
@@ -895,8 +923,11 @@ function ColumnsLayouts() {
           },
         });
 
-        const mappedOptions = (response.data || []).map(mapOption);
-        setter(transform ? transform(mappedOptions) : mappedOptions);
+        const responseItems = Array.isArray(response.data) ? response.data : [];
+        const mappedOptions = transform
+          ? transform(responseItems)
+          : responseItems.map(mapOption);
+        setter(mappedOptions);
       }),
     );
   }, [token]);
@@ -2420,13 +2451,18 @@ function ColumnsLayouts() {
               <InputLabel>Responsável (dono da norma) *</InputLabel>
               <Autocomplete
                 options={responsaveis}
-                getOptionLabel={(option) => option.nome}
+                filterOptions={filterResponsibleOptions}
+                getOptionKey={getResponsibleOptionKey}
+                getOptionLabel={getResponsibleOptionLabel}
                 value={selectedResponsible}
                 onChange={handleResponsavelChange}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
+                isOptionEqualToValue={(option, value) =>
+                  String(option.id) === String(value.id)
+                }
                 renderInput={(params) => (
                   <TextField {...params} error={!formValidation.responsavel} />
                 )}
+                renderOption={renderResponsibleOption}
                 disabled={!canEditGeneralFields}
               />
             </Stack>
@@ -2437,15 +2473,20 @@ function ColumnsLayouts() {
               <InputLabel>Revisor *</InputLabel>
               <Autocomplete
                 options={responsaveis}
-                getOptionLabel={(option) => option.nome}
+                filterOptions={filterResponsibleOptions}
+                getOptionKey={getResponsibleOptionKey}
+                getOptionLabel={getResponsibleOptionLabel}
                 value={selectedReviewer}
                 onChange={(_, newValue) =>
                   withDirty({ revisor: newValue ? newValue.id : "" })
                 }
-                isOptionEqualToValue={(option, value) => option.id === value.id}
+                isOptionEqualToValue={(option, value) =>
+                  String(option.id) === String(value.id)
+                }
                 renderInput={(params) => (
                   <TextField {...params} error={!formValidation.revisor} />
                 )}
+                renderOption={renderResponsibleOption}
                 disabled={!canEditGeneralFields}
               />
             </Stack>
@@ -2507,23 +2548,48 @@ function ColumnsLayouts() {
                       { id: "all", nome: "Selecionar todos" },
                       ...aprovadores,
                     ]}
-                    getOptionLabel={(option) => option.nome}
+                    filterOptions={filterResponsibleOptions}
+                    getOptionKey={getResponsibleOptionKey}
+                    getOptionLabel={getResponsibleOptionLabel}
                     value={buildSelectedValues(formData.aprovador, aprovadores)}
                     onChange={handleMultiSelectAll("aprovador", aprovadores)}
-                    isOptionEqualToValue={(option, value) => option.id === value.id}
-                    renderOption={(props, option, { selected }) => (
-                      <li {...props}>
-                        <Checkbox
-                          checked={
-                            option.id === "all"
-                              ? formData.aprovador.length ===
-                                  aprovadores.length && aprovadores.length > 0
-                              : selected
-                          }
-                        />
-                        {option.nome}
-                      </li>
-                    )}
+                    isOptionEqualToValue={(option, value) =>
+                      String(option.id) === String(value.id)
+                    }
+                    renderOption={(props, option, { selected }) => {
+                      const optionProps = { ...props };
+                      delete optionProps.key;
+                      const detail = getResponsibleOptionDetail(option);
+
+                      return (
+                        <li
+                          key={getResponsibleOptionKey(option)}
+                          {...optionProps}
+                        >
+                          <Checkbox
+                            checked={
+                              option.id === "all"
+                                ? formData.aprovador.length ===
+                                    aprovadores.length && aprovadores.length > 0
+                                : selected
+                            }
+                          />
+                          <Box sx={{ display: "flex", flexDirection: "column" }}>
+                            <Typography variant="body2">
+                              {getResponsibleOptionLabel(option)}
+                            </Typography>
+                            {detail ? (
+                              <Typography
+                                variant="caption"
+                                sx={{ color: "text.secondary" }}
+                              >
+                                {detail}
+                              </Typography>
+                            ) : null}
+                          </Box>
+                        </li>
+                      );
+                    }}
                     renderInput={(params) => <TextField {...params} />}
                     disabled={!canEditGeneralFields}
                   />
